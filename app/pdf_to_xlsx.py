@@ -4,11 +4,12 @@ import re
 from io import BytesIO
 from typing import Tuple, List, Dict, Any
 
+# Hoofdregex voor volledige productregels (met alle velden)
 ARTICLE_REGEX = re.compile(
     r"^(\*?\d{5,6})\s+(\d+)\s+(.*?)\s+([\d,.]+)\s+([\d,.]+)$"
 )
 
-# Regex voor legende producten (alleen artikelnummer en omschrijving)
+# Regex voor legende producten (alleen artikelnummer en omschrijving, zonder prijzen)
 LEGEND_PRODUCT_REGEX = re.compile(
     r"^(\*?\d{5,6})\s+(.+)$"
 )
@@ -58,6 +59,8 @@ def is_valid_product_line(line: str) -> bool:
         "btw",
         "inclusief",
         "exclusief",
+        "zie legende",  # Nieuwe pattern
+        "blad",  # Nieuwe pattern
     ]
     
     for pattern in skip_patterns:
@@ -70,10 +73,11 @@ def is_valid_product_line(line: str) -> bool:
     
     return True
 
-def extract_legend_products(text: str) -> List[str]:
+def extract_legend_products(text: str) -> List[Dict[str, str]]:
     """
     Extract producten uit de legende sectie van de PDF.
     Zoekt naar sectie met "legende" of "legenda" en haalt artikelnummers eruit.
+    Retourneert een lijst met dict items met 'artikel' en 'description'.
     """
     legend_products = []
     lines = text.splitlines()
@@ -86,21 +90,30 @@ def extract_legend_products(text: str) -> List[str]:
         # Detecteer start van legende sectie
         if "legende" in line_lower or "legenda" in line_lower:
             in_legend_section = True
+            print(f"DEBUG: Gevonden legende sectie op regel: {line_stripped}")
             continue
         
         # Stop met legende sectie bij bepaalde markers
         if in_legend_section:
             # Stop als we een nieuwe sectie tegenkomen
-            if line_lower.startswith(("totaal", "subtotaal", "optie", "variante")):
-                in_legend_section = False
+            if line_lower.startswith(("totaal", "subtotaal", "optie", "variante")) or not line_stripped:
+                if line_lower.startswith(("totaal", "subtotaal")):
+                    in_legend_section = False
+                    print(f"DEBUG: Einde legende sectie bij: {line_stripped}")
                 continue
             
             # Probeer artikelnummer te matchen in legende
             match = LEGEND_PRODUCT_REGEX.match(line_stripped)
             if match:
                 artikel = match.group(1).replace("*", "")
-                legend_products.append(artikel)
+                description = match.group(2).strip()
+                legend_products.append({
+                    "artikel": artikel,
+                    "description": description
+                })
+                print(f"DEBUG: Gevonden legende product: {artikel} - {description}")
     
+    print(f"DEBUG: Totaal aantal legende producten: {len(legend_products)}")
     return legend_products
 
 def facq_pdf_to_xlsx(pdf_bytes: bytes) -> BytesIO:
@@ -129,23 +142,30 @@ def facq_pdf_to_xlsx_and_data(pdf_bytes: bytes) -> Tuple[BytesIO, List[Dict[str,
     all_legend_products = []
 
     # Eerste pass: verzamel alle legende producten
+    print("DEBUG: Start eerste pass - zoek legende producten")
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-        for page in pdf.pages:
+        for page_num, page in enumerate(pdf.pages, 1):
             text = page.extract_text()
             if not text:
                 continue
             
+            print(f"DEBUG: Pagina {page_num} tekst lengte: {len(text)}")
             legend_products = extract_legend_products(text)
             all_legend_products.extend(legend_products)
 
+    # Maak een mapping van artikelnummer naar beschrijving voor legende producten
+    legend_map = {item["artikel"]: item["description"] for item in all_legend_products}
+    print(f"DEBUG: Legende map: {legend_map}")
+
     # Tweede pass: match producten (inclusief legende producten)
+    print("DEBUG: Start tweede pass - match productregels")
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-        for page in pdf.pages:
+        for page_num, page in enumerate(pdf.pages, 1):
             text = page.extract_text()
             if not text:
                 continue
 
-            for line in text.splitlines():
+            for line_num, line in enumerate(text.splitlines(), 1):
                 line = line.strip()
 
                 # Valideer of dit een geldige productlijn is
@@ -154,16 +174,22 @@ def facq_pdf_to_xlsx_and_data(pdf_bytes: bytes) -> Tuple[BytesIO, List[Dict[str,
 
                 match = ARTICLE_REGEX.match(line)
                 if not match:
+                    # Probeer te zien of dit een artikelnummer is zonder volledige productlijn
+                    # Dit kan nuttig zijn voor debugging
+                    if re.match(r"^\*?\d{5,6}\s", line):
+                        print(f"DEBUG: Regel matched artikelnummer maar niet volledig: {line}")
                     continue
 
                 artikel, qty, desc, unit_price, amount = match.groups()
                 artikel_clean = artikel.replace("*", "")
                 
-                # Extra check: als dit artikel in de legende staat, OF
-                # als het een standaard productlijn is, dan opnemen
-                # (Legende producten hebben prioriteit voor matching)
+                # Als dit artikel in de legende staat, gebruik de legende beschrijving
+                if artikel_clean in legend_map:
+                    desc_clean = legend_map[artikel_clean]
+                    print(f"DEBUG: Artikel {artikel_clean} gevonden in legende, gebruik beschrijving: {desc_clean}")
+                else:
+                    desc_clean = desc.strip()
                 
-                desc_clean = desc.strip()
                 qty_int = int(qty)
                 unit_price_float = parse_european_number(unit_price)
                 amount_float = parse_european_number(amount)
@@ -184,9 +210,12 @@ def facq_pdf_to_xlsx_and_data(pdf_bytes: bytes) -> Tuple[BytesIO, List[Dict[str,
                     "quantity": qty_int,
                     "unit_price": unit_price_float,
                     "tax_percent": 21,
-                    "from_legend": artikel_clean in all_legend_products  # Markeer of het uit legende komt
+                    "from_legend": artikel_clean in legend_map  # Markeer of het uit legende komt
                 })
+                
+                print(f"DEBUG: Product toegevoegd: {artikel_clean} - {desc_clean}")
 
+    print(f"DEBUG: Totaal aantal producten gevonden: {len(lines_data)}")
     output = BytesIO()
     wb.save(output)
     output.seek(0)
