@@ -2,6 +2,7 @@ import os
 import requests
 import logging
 from typing import List, Dict, Any, Optional
+from difflib import SequenceMatcher
 
 # Configure logging - basicConfig is idempotent and won't reconfigure if already set up
 logger = logging.getLogger(__name__)
@@ -70,6 +71,71 @@ def search_product_by_reference(uid: int, product_code: str) -> Optional[int]:
             return None
     except Exception as e:
         logger.error(f"Error searching for product with reference '{product_code}': {str(e)}")
+        return None
+
+
+def fuzzy_search_product_by_name(uid: int, product_name: str, threshold: float = 0.6) -> Optional[int]:
+    """
+    Search for a product in Odoo by fuzzy matching on the product name.
+    Uses sequence matching to find similar product names.
+    
+    Args:
+        uid: Odoo user ID
+        product_name: Product name to search for
+        threshold: Minimum similarity ratio (0.0 to 1.0) to consider a match. Default is 0.6 (60%)
+    
+    Returns:
+        product_id if found with similarity >= threshold, None otherwise
+    """
+    try:
+        # Get all products with their names
+        # For better performance in production, consider limiting the search
+        # or adding additional filters
+        products = call(uid, "product.product", "search_read", [
+            [],  # No domain filter - search all products
+            ["id", "name", "default_code"]
+        ])
+        
+        if not products:
+            logger.warning("No products found in database for fuzzy matching")
+            return None
+        
+        # Normalize the search term
+        normalized_search = product_name.lower().strip()
+        
+        # Find best match
+        best_match = None
+        best_ratio = 0.0
+        
+        for product in products:
+            product_id = product["id"]
+            product_db_name = (product.get("name") or "").lower().strip()
+            
+            # Calculate similarity ratio
+            ratio = SequenceMatcher(None, normalized_search, product_db_name).ratio()
+            
+            # Also check if search terms are contained in product name (partial matching)
+            search_words = set(normalized_search.split())
+            product_words = set(product_db_name.split())
+            common_words = search_words.intersection(product_words)
+            
+            # Boost ratio if significant words overlap
+            if search_words and len(common_words) / len(search_words) > 0.5:
+                ratio = max(ratio, 0.7)
+            
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_match = product
+        
+        if best_match and best_ratio >= threshold:
+            logger.info(f"Fuzzy match found for '{product_name}': '{best_match['name']}' (similarity: {best_ratio:.2f}, product_id={best_match['id']})")
+            return best_match["id"]
+        else:
+            logger.warning(f"No fuzzy match found for '{product_name}' (best match: {best_ratio:.2f}, threshold: {threshold})")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error in fuzzy search for product '{product_name}': {str(e)}")
         return None
 
 
@@ -180,6 +246,7 @@ def create_quotation_from_xlsx_data(
 
     # Add order lines
     products_found = 0
+    products_created = 0
     products_not_found = 0
     
     for line in lines:
@@ -188,14 +255,39 @@ def create_quotation_from_xlsx_data(
         quantity = line.get("quantity", 1)
         unit_price = line.get("unit_price", 0.0)
         
-        # Try to find the product by its reference code
+        # Try to find the product by its reference code or by fuzzy name matching
         product_id = None
+        
         if product_code:
+            # FACQ products: search by product code
             product_id = search_product_by_reference(uid, product_code)
             
             if product_id:
                 products_found += 1
-            # If not found, product_id stays None and will create description line
+        else:
+            # EPB products (no product code): use fuzzy matching by name
+            if description:
+                product_id = fuzzy_search_product_by_name(uid, description, threshold=0.6)
+                
+                if product_id:
+                    products_found += 1
+                else:
+                    # No match found (0% match) - create new product
+                    logger.info(f"No match found for EPB product '{description}' - creating new product")
+                    try:
+                        product_data = {
+                            "name": description,
+                            "list_price": unit_price,
+                            "type": "product",
+                            "sale_ok": True,
+                            "purchase_ok": False,
+                        }
+                        product_id = call(uid, "product.product", "create", [product_data])
+                        logger.info(f"Created new product '{description}' with product_id={product_id}")
+                        products_created += 1
+                    except Exception as e:
+                        logger.error(f"Failed to create product '{description}': {str(e)}")
+                        product_id = None
         
         # Prepare order line data
         order_line_data = {
@@ -205,12 +297,15 @@ def create_quotation_from_xlsx_data(
         }
         
         if product_id:
-            # Product found - create a product line
+            # Product found or created - create a product line
             order_line_data["product_id"] = product_id
             # Let Odoo auto-fill the description from the product record
-            logger.info(f"Creating product line for '{product_code}' with product_id={product_id}")
+            if product_code:
+                logger.info(f"Creating product line for '{product_code}' with product_id={product_id}")
+            else:
+                logger.info(f"Creating product line for '{description[:LOG_DESCRIPTION_MAX_LENGTH]}...' with product_id={product_id}")
         else:
-            # Product not found - create a description line
+            # Product not found and creation failed - create a description line
             if product_code:
                 order_line_data["name"] = f"[{product_code}] {description}"
                 logger.warning(f"Product '{product_code}' not found in database - creating description line")
@@ -235,10 +330,10 @@ def create_quotation_from_xlsx_data(
         try:
             call(uid, "sale.order.line", "create", [order_line_data])
         except Exception as e:
-            logger.error(f"Failed to create order line for product '{product_code}': {str(e)}")
+            logger.error(f"Failed to create order line for product '{product_code or description[:30]}': {str(e)}")
             raise
 
-    logger.info(f"Quotation created successfully: {products_found} products found, {products_not_found} description lines created")
+    logger.info(f"Quotation created successfully: {products_found} products found, {products_created} products created, {products_not_found} description lines created")
     return order_id
 
 

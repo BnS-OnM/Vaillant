@@ -28,7 +28,10 @@ def normalize_text(s: str) -> str:
     return s.lower()
 
 def parse_legend_blocks(text: str) -> List[str]:
-    """Zoek sectie 'Legende' en pak regels tot volgende sectie."""
+    """
+    Zoek sectie 'Legende' en pak regels met nummer+letter indicator (1a, 2a, 3a, etc.).
+    Strip de indicator en behoud alleen de productnaam.
+    """
     txt = text
     m = re.search(r"(^|\n)\s*legende\s*[:\n]", txt, flags=re.IGNORECASE)
     if not m:
@@ -50,13 +53,20 @@ def parse_legend_blocks(text: str) -> List[str]:
     lines = [normalize_text(l) for l in segment.splitlines()]
     lines = [l for l in lines if l and not l.startswith("pagina ") and len(l) >= 2]
     
-    # Items herkennen
+    # Items herkennen met nummer+letter indicator (1a, 2a, 3a, etc.)
+    # Pattern: start met cijfer(s) gevolgd door letter(s), mogelijk met scheidingstekens
     item_like = []
+    indicator_pattern = r"^(\d+[a-z]+)[\s\.\)\-:,]+"
+    
     for l in lines:
-        if re.search(r"^[•\-\*\d]+[\)\.\-\s]", l) or re.search(r"[a-z0-9]{2,}", l):
-            l2 = re.sub(r"^(•|\-|\*|\d+[\)\.\-\s])+", "", l).strip()
-            if l2:
-                item_like.append(l2)
+        # Zoek naar items die beginnen met nummer+letter indicator
+        match = re.match(indicator_pattern, l, re.IGNORECASE)
+        if match:
+            # Strip de indicator en behoud de rest als productnaam
+            product_name = l[match.end():].strip()
+            if product_name:
+                item_like.append(product_name)
+                logger.debug(f"Found legend item with indicator '{match.group(1)}': {product_name}")
     
     # Deduplicatie
     seen = set()
@@ -66,6 +76,7 @@ def parse_legend_blocks(text: str) -> List[str]:
             seen.add(l)
             unique_items.append(l)
     
+    logger.info(f"Extracted {len(unique_items)} products from legend with number+letter indicators")
     return unique_items
 
 def extract_qty(item: str) -> Tuple[str, int]:
