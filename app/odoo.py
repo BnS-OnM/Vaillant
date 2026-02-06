@@ -108,11 +108,8 @@ def search_product_by_name_or_description(uid: int, search_text: str) -> Optiona
         
         if products:
             # Check if multiple matches exist to warn about ambiguity
-            count = call(uid, "product.product", "search_count", [
-                [["name", "ilike", search_text]]
-            ])
-            if count > 1:
-                logger.warning(f"Multiple products ({count}) match name '{search_text}' - using first match: product_id={products[0]}")
+            if len(products) > 1:
+                logger.warning(f"Multiple products ({len(products)}) match name '{search_text}' - using first match: product_id={products[0]}")
             else:
                 logger.info(f"Product found by name ilike '{search_text}': product_id={products[0]}")
             return products[0]
@@ -123,11 +120,8 @@ def search_product_by_name_or_description(uid: int, search_text: str) -> Optiona
         ])
         
         if products:
-            count = call(uid, "product.product", "search_count", [
-                [["description_sale", "ilike", search_text]]
-            ])
-            if count > 1:
-                logger.warning(f"Multiple products ({count}) match description_sale '{search_text}' - using first match: product_id={products[0]}")
+            if len(products) > 1:
+                logger.warning(f"Multiple products ({len(products)}) match description_sale '{search_text}' - using first match: product_id={products[0]}")
             else:
                 logger.info(f"Product found by description_sale ilike '{search_text}': product_id={products[0]}")
             return products[0]
@@ -139,11 +133,8 @@ def search_product_by_name_or_description(uid: int, search_text: str) -> Optiona
         ])
         
         if products:
-            count = call(uid, "product.product", "search_count", [
-                [["description", "ilike", search_text]]
-            ])
-            if count > 1:
-                logger.warning(f"Multiple products ({count}) match description '{search_text}' - using first match: product_id={products[0]}")
+            if len(products) > 1:
+                logger.warning(f"Multiple products ({len(products)}) match description '{search_text}' - using first match: product_id={products[0]}")
             else:
                 logger.info(f"Product found by description ilike '{search_text}': product_id={products[0]}")
             return products[0]
