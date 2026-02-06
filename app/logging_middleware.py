@@ -1,8 +1,8 @@
 import json
 import logging
 import os
-import time
 from datetime import datetime, timezone
+from http import HTTPStatus
 from typing import Callable
 
 from fastapi import Request, Response
@@ -45,23 +45,20 @@ class StructuredLoggingMiddleware(BaseHTTPMiddleware):
         # Process the request
         response = await call_next(request)
         
-        # Map status codes to phrases
-        status_phrases = {
-            200: "OK",
-            201: "Created",
-            204: "No Content",
-            400: "Bad Request",
-            401: "Unauthorized",
-            403: "Forbidden",
-            404: "Not Found",
-            500: "Internal Server Error",
-            502: "Bad Gateway",
-            503: "Service Unavailable",
-        }
-        status_phrase = status_phrases.get(response.status_code, "")
+        # Get status phrase using http.HTTPStatus
+        try:
+            status_phrase = HTTPStatus(response.status_code).phrase
+        except ValueError:
+            # For non-standard status codes, use empty string
+            status_phrase = ""
+        
+        # Get HTTP version from request scope
+        http_version = request.scope.get("http_version", "HTTP/1.1")
+        if not http_version.startswith("HTTP/"):
+            http_version = f"HTTP/{http_version}"
         
         # Build the log message
-        message = f"INFO:     {client_ip}:{client_port} - \"{request.method} {request.url.path} HTTP/1.1\" {response.status_code} {status_phrase}"
+        message = f"INFO:     {client_ip}:{client_port} - \"{request.method} {request.url.path} {http_version}\" {response.status_code} {status_phrase}"
         
         # Create structured log entry
         log_entry = {
@@ -70,7 +67,7 @@ class StructuredLoggingMiddleware(BaseHTTPMiddleware):
                 "level": "info"
             },
             "tags": self.tags,
-            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
         }
         
         # Log as JSON
