@@ -3,12 +3,20 @@ from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from typing import Optional
 import os
+import logging
 
 from app.pdf_to_xlsx import facq_pdf_to_xlsx, facq_pdf_to_xlsx_and_data
 from app.odoo import create_quotation_from_xlsx_data, import_products_from_data
 from app.xlsx_import import parse_product_xlsx, parse_sale_order_xlsx
+from app.logging_middleware import StructuredLoggingMiddleware
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="FACQ PDF → XLSX Converter")
+
+# Add structured logging middleware
+app.add_middleware(StructuredLoggingMiddleware)
 
 templates = Jinja2Templates(directory="app/templates")
 
