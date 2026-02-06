@@ -1,5 +1,5 @@
 """
-EPB Installatievoorstel → Odoo Sales import
+Vaillant Installatievoorstel → Odoo Sales import
 Gebaseerd op ChatGPT's legende-matching code
 """
 import re
@@ -14,8 +14,8 @@ from openpyxl import Workbook
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Default Belgian VAT rate for EPB items (can be overridden)
-DEFAULT_EPB_TAX_PERCENT = 21
+# Default Belgian VAT rate for Vaillant installatievoorstel items (can be overridden)
+DEFAULT_VAILLANT_TAX_PERCENT = 21
 
 # Regex pattern for number+letter indicators (e.g., 1a, 2a, 3a)
 # Made more flexible to match optional codes
@@ -214,7 +214,7 @@ def fuzzy_match_legend_items(
     """
     Match legende items met Odoo productcatalogus via fuzzy matching.
     
-    Note: Local import is used to avoid circular dependency between pdf_epb_to_odoo and odoo modules.
+    Note: Local import is used to avoid circular dependency between pdf_vaillant_to_odoo and odoo modules.
     
     Args:
         legend_items: Lijst van rauwe items uit PDF
@@ -263,21 +263,21 @@ def fuzzy_match_legend_items(
     logger.info(f"Fuzzy matching complete: {sum(1 for m in matched_items if m['product_id'])} of {len(matched_items)} items matched")
     return matched_items
 
-def epb_pdf_to_xlsx(pdf_bytes: bytes) -> BytesIO:
+def vaillant_pdf_to_xlsx(pdf_bytes: bytes) -> BytesIO:
     """
-    Converteer EPB/installatievoorstel PDF naar XLSX met legende items.
+    Converteer Vaillant installatievoorstel PDF naar XLSX met legende items.
     Backward compatible version without uid parameter.
     """
-    xlsx_file, _ = epb_pdf_to_xlsx_and_data(pdf_bytes, uid=None)
+    xlsx_file, _ = vaillant_pdf_to_xlsx_and_data(pdf_bytes, uid=None)
     return xlsx_file
 
 
-def epb_pdf_to_xlsx_and_data(
+def vaillant_pdf_to_xlsx_and_data(
     pdf_bytes: bytes,
     uid: Optional[int] = None
 ) -> Tuple[BytesIO, List[Dict]]:
     """
-    Converteer EPB/installatievoorstel PDF naar XLSX met legende items en gestructureerde data.
+    Converteer Vaillant installatievoorstel PDF naar XLSX met legende items en gestructureerde data.
     
     Args:
         pdf_bytes: PDF file bytes
@@ -345,7 +345,7 @@ def epb_pdf_to_xlsx_and_data(
     # Bouw XLSX
     wb = Workbook()
     ws = wb.active
-    ws.title = "EPB Items"
+    ws.title = "Vaillant Items"
     
     # Add headers with optional Product ID and Match Confidence columns
     if uid is not None:
@@ -390,11 +390,11 @@ def epb_pdf_to_xlsx_and_data(
         
         # Add to structured data
         lines_data.append({
-            "product_code": "",  # EPB items don't have product codes
+            "product_code": "",  # Vaillant installatievoorstel items don't have product codes
             "description": description,
             "quantity": qty,
-            "unit_price": 0.0,  # No price information in EPB PDFs
-            "tax_percent": DEFAULT_EPB_TAX_PERCENT,
+            "unit_price": 0.0,  # No price information in Vaillant installatievoorstel PDFs
+            "tax_percent": DEFAULT_VAILLANT_TAX_PERCENT,
             "product_id": product_id,  # Include product_id if matched
         })
     
@@ -402,5 +402,5 @@ def epb_pdf_to_xlsx_and_data(
     wb.save(output)
     output.seek(0)
     
-    logger.info(f"EPB XLSX generated with {len(matched_items)} items")
+    logger.info(f"Vaillant installatievoorstel XLSX generated with {len(matched_items)} items")
     return output, lines_data
