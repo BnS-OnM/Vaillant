@@ -88,8 +88,9 @@ def parse_legend_blocks(text: str) -> List[str]:
     segment = txt[start:]
     
     # Stop bij volgende sectie (flexibeler patroon)
+    # Match sectie headers die eindigen met : of op een nieuwe regel staan
     stop_match = re.search(
-        r"(^|\n)\s*(bijlage|appendix|notes?|opmerkingen|specificaties|schema|totaal|subtotaal|technische)\s*[:\n]",
+        r"(^|\n)\s*(bijlage|appendix|notes?|opmerkingen|specificaties|schema|totaal|subtotaal|technische|garantie)\b",
         segment,
         flags=re.IGNORECASE
     )
