@@ -157,8 +157,9 @@ curl -X POST "http://localhost:8000/import-sale-order" \
 - The system tries to find products in this order:
   1. Exact name match
   2. Case-insensitive name match (using `ilike`)
-  3. Description field match
-  4. Description_sale field match
+  3. Description_sale field match (sales/customer-facing descriptions)
+  4. Description field match (internal/purchase descriptions)
 - If a matching product is found, a product line is created with the `product_id` set
 - If no matching product is found, a description-only line is created
 - The product description is imported to Odoo in both cases
+- When multiple products match, the first one is used and a warning is logged
