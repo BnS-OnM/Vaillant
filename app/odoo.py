@@ -126,8 +126,8 @@ def search_product_by_name_or_description(uid: int, search_text: str) -> Optiona
                 logger.info(f"Product found by description_sale ilike '{search_text}': product_id={products[0]}")
             return products[0]
         
-        # Try searching in description field (may contain internal/purchase descriptions)
-        # Note: This field is typically used for internal notes in Odoo, not customer-facing text
+        # Try searching in description field (internal/purchase descriptions and notes)
+        # Note: In Odoo, this field typically contains technical details, purchase info, or internal notes
         products = call(uid, "product.product", "search", [
             [["description", "ilike", search_text]]
         ])
