@@ -75,6 +75,10 @@ def search_product_by_reference(uid: int, product_code: str) -> Optional[int]:
 
 def create_product(uid: int, product_code: str, description: str, unit_price: float) -> Optional[int]:
     """
+    DEPRECATED: This function is no longer used in the quotation flow.
+    Products are not automatically created when importing quotations.
+    Use the /import-products endpoint to explicitly import products into Odoo.
+    
     Create a new product in Odoo with the given details.
     
     Args:
@@ -176,7 +180,6 @@ def create_quotation_from_xlsx_data(
 
     # Add order lines
     products_found = 0
-    products_created = 0
     products_not_found = 0
     
     for line in lines:
@@ -187,18 +190,12 @@ def create_quotation_from_xlsx_data(
         
         # Try to find the product by its reference code
         product_id = None
-        product_was_created = False
         if product_code:
             product_id = search_product_by_reference(uid, product_code)
             
-            # If product not found, create it
-            if not product_id:
-                product_id = create_product(uid, product_code, description, unit_price)
-                if product_id:
-                    products_created += 1
-                    product_was_created = True
-            else:
+            if product_id:
                 products_found += 1
+            # If not found, product_id stays None and will create description line
         
         # Prepare order line data
         order_line_data = {
@@ -208,24 +205,21 @@ def create_quotation_from_xlsx_data(
         }
         
         if product_id:
-            # Product found or created - create a product line
+            # Product found - create a product line
             order_line_data["product_id"] = product_id
             # Let Odoo auto-fill the description from the product record
-            action = "created" if product_was_created else "found"
-            logger.info(f"Creating product line for '{product_code}' with product_id={product_id} (product {action})")
+            logger.info(f"Creating product line for '{product_code}' with product_id={product_id}")
         else:
-            # Product creation failed or no product code - create a description line
-            # Note: products_not_found is only incremented here, which correctly counts:
-            # 1. Lines with no product_code
-            # 2. Lines where product search AND creation both failed
+            # Product not found - create a description line
             if product_code:
                 order_line_data["name"] = f"[{product_code}] {description}"
-                logger.warning(f"Product '{product_code}' could not be found or created - creating description line")
+                logger.warning(f"Product '{product_code}' not found in database - creating description line")
+                products_not_found += 1
             else:
                 order_line_data["name"] = description
                 truncated_desc = description[:LOG_DESCRIPTION_MAX_LENGTH] + ('...' if len(description) > LOG_DESCRIPTION_MAX_LENGTH else '')
                 logger.warning(f"No product code provided - creating description line: {truncated_desc}")
-            products_not_found += 1
+                products_not_found += 1
         
         # TODO: Add tax handling for production environments
         # Tax handling in Odoo requires finding the tax record by rate
@@ -245,7 +239,7 @@ def create_quotation_from_xlsx_data(
             logger.error(f"Failed to create order line for product '{product_code}': {str(e)}")
             raise
 
-    logger.info(f"Quotation created successfully: {products_found} existing products, {products_created} products created, {products_not_found} description lines")
+    logger.info(f"Quotation created successfully: {products_found} products found, {products_not_found} description lines created")
     return order_id
 
 
