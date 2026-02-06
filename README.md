@@ -1,14 +1,16 @@
 # FACQ Converter Odoo
 
 Convert FACQ PDF invoices to XLSX format and optionally import them as quotations into Odoo.
-Also supports direct import of products and sale orders from Excel files.
+Also supports direct import of products and sale orders from Excel files, including EPB legende items.
 
 ## Features
 
 - **PDF to XLSX Conversion**: Upload a FACQ PDF and download it as an Excel file
 - **Odoo Integration**: Automatically import the converted data as a new quotation in Odoo's sales module
 - **Excel Import**: Import products and sale orders directly from Excel files to Odoo
-- **Product Linking**: Automatically link sale order lines to existing products in Odoo by product code
+- **Smart Product Matching**: 
+  - FACQ items: Matched by product code (default_code/reference)
+  - EPB Legende items: Matched by product name or description
 - **Multiple workflows**:
   1. Download XLSX only (original functionality)
   2. Download XLSX + Import to Odoo (new functionality)
@@ -127,3 +129,37 @@ curl -X POST "http://localhost:8000/import-sale-order" \
 - If a product with the matching `default_code` is found, a product line is created with the `product_id` set
 - If no matching product is found, a description-only line is created with the product code and description
 - This ensures proper product tracking and inventory management in Odoo
+
+### Importing EPB Legende Items
+
+Import EPB installation proposal items from an Excel file with the legende structure:
+
+**EPB Items.xlsx format (from legende section):**
+- Column headers: `Item Beschrijving`, `Aantal`, `Opmerkingen`
+- Example:
+  ```
+  Item Beschrijving              | Aantal | Opmerkingen
+  cv-ketel vaillant ecotec plus | 1      | Te matchen met product
+  radiatorkraan thermostatisch  | 3      | Te matchen met product
+  warmtewisselaar type a        | 2      | Te matchen met product
+  ```
+
+**API Call:**
+```bash
+curl -X POST "http://localhost:8000/import-sale-order" \
+  -F "file=@EPB Items.xlsx" \
+  -F "customer_name=EPB Customer" \
+  -F "customer_email=epb@example.com"
+```
+
+**Product Matching for Legende Items:**
+- Items without product codes are matched by **product name or description** (not by reference/code)
+- The system tries to find products in this order:
+  1. Exact name match
+  2. Case-insensitive name match (using `ilike`)
+  3. Description_sale field match (sales/customer-facing descriptions)
+  4. Description field match (internal/purchase descriptions)
+- If a matching product is found, a product line is created with the `product_id` set
+- If no matching product is found, a description-only line is created
+- The product description is imported to Odoo in both cases
+- When multiple products match, the first one is used and a warning is logged
