@@ -290,7 +290,7 @@ def create_quotation_from_xlsx_data(
             if product_id:
                 products_found += 1
         else:
-            # EPB products (no product code): use fuzzy matching by name
+            # Vaillant installatievoorstel products (no product code): use fuzzy matching by name
             if description:
                 product_id = fuzzy_search_product_by_name(uid, description, threshold=FUZZY_MATCH_THRESHOLD)
                 
@@ -298,7 +298,7 @@ def create_quotation_from_xlsx_data(
                     products_found += 1
                 else:
                     # No match found (0% match) - create new product
-                    logger.info(f"No match found for EPB product '{description}' - creating new product")
+                    logger.info(f"No match found for Vaillant installatievoorstel product '{description}' - creating new product")
                     try:
                         # Validate that we have a description before creating
                         if not description or len(description.strip()) < 2:
@@ -310,7 +310,7 @@ def create_quotation_from_xlsx_data(
                                 "list_price": unit_price,
                                 "type": "product",  # Standard stockable product
                                 "sale_ok": True,  # Can be sold
-                                "purchase_ok": False,  # EPB products are sales-only
+                                "purchase_ok": False,  # Vaillant installatievoorstel products are sales-only
                             }
                             product_id = call(uid, "product.product", "create", [product_data])
                             logger.info(f"Created new product '{description}' with product_id={product_id}")

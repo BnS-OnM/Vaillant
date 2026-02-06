@@ -80,7 +80,7 @@ async def upload_pdf_and_import_to_odoo(
     customer_email: Optional[str] = Form(None)
 ):
     """
-    Upload PDF (FACQ or EPB) → create XLSX → import to Odoo as quotation
+    Upload PDF (FACQ or Vaillant installatievoorstel) → create XLSX → import to Odoo as quotation
     """
     if not file.filename.lower().endswith(".pdf"):
         return JSONResponse(
@@ -96,13 +96,13 @@ async def upload_pdf_and_import_to_odoo(
         logger.info(f"Detected PDF type: {pdf_type.value}")
         
         # Use appropriate converter based on PDF type
-        if pdf_type == PDFType.EPB_VOORSTEL:
-            # For EPB PDFs, try to get uid for fuzzy matching
+        if pdf_type == PDFType.VAILLANT_VOORSTEL:
+            # For Vaillant installatievoorstel PDFs, try to get uid for fuzzy matching
             uid = None
             try:
                 from app.odoo import login
                 uid = login()
-                logger.info("Odoo uid obtained for EPB fuzzy matching")
+                logger.info("Odoo uid obtained for Vaillant installatievoorstel fuzzy matching")
             except Exception as e:
                 logger.warning(f"Could not get Odoo uid for fuzzy matching: {str(e)}")
             
