@@ -9,11 +9,13 @@ Also supports direct import of products and sale orders from Excel files.
 - **Odoo Integration**: Automatically import the converted data as a new quotation in Odoo's sales module
 - **Excel Import**: Import products and sale orders directly from Excel files to Odoo
 - **Product Linking**: Automatically link sale order lines to existing products in Odoo by product code
+- **Log Analysis**: Analyze CSV log files to get insights on API usage, error rates, and request patterns
 - **Multiple workflows**:
   1. Download XLSX only (original functionality)
   2. Download XLSX + Import to Odoo (new functionality)
   3. Import products from Excel to Odoo
   4. Import sale orders from Excel to Odoo with automatic product linking
+  5. Analyze application logs from CSV files
 
 ## Setup
 
@@ -58,9 +60,12 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - `POST /upload-xlsx` - Upload PDF, download XLSX
 - `POST /upload-and-import` - Upload PDF, download XLSX, and import to Odoo
 
-### Excel Import (New)
+### Excel Import
 - `POST /import-products` - Import products from Excel file (Product (product.template).xlsx format)
 - `POST /import-sale-order` - Import sale order from Excel file (Verkooporder (sale.order).xlsx format)
+
+### Log Analysis
+- `POST /analyze-logs` - Analyze CSV log files and get statistics on requests, status codes, and errors
 
 ### Other
 - `GET /health` - Health check
@@ -127,3 +132,76 @@ curl -X POST "http://localhost:8000/import-sale-order" \
 - If a product with the matching `default_code` is found, a product line is created with the `product_id` set
 - If no matching product is found, a description-only line is created with the product code and description
 - This ensures proper product tracking and inventory management in Odoo
+
+## Log Analysis Usage
+
+Analyze CSV log files containing structured JSON logs from the application.
+
+### Log File Format
+
+The log analysis endpoint supports CSV files with structured log entries in two formats:
+
+**Format 1: JSON in CSV** (single column with JSON strings)
+```csv
+log
+"{""message"": ""192.168.1.1:50000 - \""GET / HTTP/1.1\"" 200 OK"", ""timestamp"": ""2026-02-06T10:30:45.123456Z""}"
+"{""message"": ""192.168.1.2:50001 - \""POST /upload-xlsx HTTP/1.1\"" 500 Internal Server Error"", ""timestamp"": ""2026-02-06T10:31:00.123456Z""}"
+```
+
+**Format 2: Flattened CSV** (separate columns for each field)
+```csv
+message,timestamp,level,tags.project,tags.environment
+"192.168.1.1:50000 - ""GET / HTTP/1.1"" 200 OK",2026-02-06T10:30:45.123456Z,info,vaillant,production
+"192.168.1.2:50001 - ""POST /upload-xlsx HTTP/1.1"" 500 Internal Server Error",2026-02-06T10:31:00.123456Z,info,vaillant,production
+```
+
+### API Call
+
+```bash
+curl -X POST "http://localhost:8000/analyze-logs" \
+  -F "file=@logs.csv"
+```
+
+### Response
+
+The endpoint returns statistics about the logged requests:
+
+```json
+{
+  "success": true,
+  "statistics": {
+    "total_requests": 5,
+    "status_codes": {
+      "200": 3,
+      "500": 1,
+      "400": 1
+    },
+    "methods": {
+      "POST": 3,
+      "GET": 2
+    },
+    "paths": {
+      "/upload-and-import": 1,
+      "/health": 1,
+      "/upload-xlsx": 1,
+      "/": 1,
+      "/import-products": 1
+    },
+    "error_rate": 40.0,
+    "time_range": {
+      "earliest": "2026-02-06T10:30:45.123456Z",
+      "latest": "2026-02-06T10:34:30.123456Z"
+    },
+    "parse_errors_count": 0
+  }
+}
+```
+
+**Statistics Provided:**
+- `total_requests`: Total number of HTTP requests logged
+- `status_codes`: Distribution of HTTP status codes
+- `methods`: Distribution of HTTP methods (GET, POST, etc.)
+- `paths`: Distribution of request paths
+- `error_rate`: Percentage of 4xx and 5xx responses
+- `time_range`: Earliest and latest timestamps in the logs
+- `parse_errors_count`: Number of rows that could not be parsed

@@ -11,6 +11,7 @@ from app.pdf_vaillant_to_odoo import vaillant_pdf_to_xlsx_and_data
 from app.odoo import create_quotation_from_xlsx_data, import_products_from_data
 from app.xlsx_import import parse_product_xlsx, parse_sale_order_xlsx
 from app.logging_middleware import StructuredLoggingMiddleware
+from app.log_parser import LogAnalyzer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -311,6 +312,60 @@ async def import_sale_order_from_excel(
             status_code=500,
             content={
                 "error": "Import mislukt",
+                "detail": str(e)
+            }
+        )
+
+
+@app.post("/analyze-logs")
+async def analyze_logs(file: UploadFile = File(...)):
+    """
+    Analyze CSV log files containing structured JSON logs.
+    
+    This endpoint:
+    1. Parses CSV file containing structured log entries
+    2. Extracts HTTP request information from log messages
+    3. Provides statistics on request patterns, status codes, and error rates
+    
+    Expected CSV format:
+    - CSV file with structured log entries (JSON format or flattened columns)
+    - Log entries should contain 'message' field with HTTP request details
+    
+    Returns:
+    - total_requests: Total number of HTTP requests logged
+    - status_codes: Distribution of HTTP status codes
+    - methods: Distribution of HTTP methods (GET, POST, etc.)
+    - paths: Distribution of request paths
+    - error_rate: Percentage of 4xx and 5xx responses
+    - time_range: Earliest and latest timestamps in logs
+    """
+    if not file.filename.lower().endswith(".csv"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Upload een CSV-bestand"}
+        )
+    
+    csv_bytes = await file.read()
+    
+    try:
+        # Parse and analyze the log file
+        analyzer = LogAnalyzer(csv_bytes)
+        analyzer.parse()
+        stats = analyzer.get_statistics()
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "statistics": stats
+            }
+        )
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Log analyse mislukt",
                 "detail": str(e)
             }
         )
