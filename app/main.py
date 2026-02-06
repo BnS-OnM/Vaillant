@@ -7,7 +7,7 @@ import logging
 
 from app.pdf_to_xlsx import facq_pdf_to_xlsx, facq_pdf_to_xlsx_and_data
 from app.pdf_detector import detect_pdf_type, PDFType
-from app.pdf_epb_to_odoo import epb_pdf_to_xlsx_and_data
+from app.pdf_vaillant_to_odoo import vaillant_pdf_to_xlsx_and_data
 from app.odoo import create_quotation_from_xlsx_data, import_products_from_data
 from app.xlsx_import import parse_product_xlsx, parse_sale_order_xlsx
 from app.logging_middleware import StructuredLoggingMiddleware
@@ -106,7 +106,7 @@ async def upload_pdf_and_import_to_odoo(
             except Exception as e:
                 logger.warning(f"Could not get Odoo uid for fuzzy matching: {str(e)}")
             
-            xlsx_file, lines_data = epb_pdf_to_xlsx_and_data(pdf_bytes, uid=uid)
+            xlsx_file, lines_data = vaillant_pdf_to_xlsx_and_data(pdf_bytes, uid=uid)
         else:
             # Default to FACQ parser for FACQ and unknown types
             if pdf_type == PDFType.UNKNOWN:

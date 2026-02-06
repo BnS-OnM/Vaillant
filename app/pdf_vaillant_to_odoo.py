@@ -214,7 +214,7 @@ def fuzzy_match_legend_items(
     """
     Match legende items met Odoo productcatalogus via fuzzy matching.
     
-    Note: Local import is used to avoid circular dependency between pdf_epb_to_odoo and odoo modules.
+    Note: Local import is used to avoid circular dependency between pdf_vaillant_to_odoo and odoo modules.
     
     Args:
         legend_items: Lijst van rauwe items uit PDF
@@ -263,16 +263,16 @@ def fuzzy_match_legend_items(
     logger.info(f"Fuzzy matching complete: {sum(1 for m in matched_items if m['product_id'])} of {len(matched_items)} items matched")
     return matched_items
 
-def epb_pdf_to_xlsx(pdf_bytes: bytes) -> BytesIO:
+def vaillant_pdf_to_xlsx(pdf_bytes: bytes) -> BytesIO:
     """
     Converteer Vaillant installatievoorstel PDF naar XLSX met legende items.
     Backward compatible version without uid parameter.
     """
-    xlsx_file, _ = epb_pdf_to_xlsx_and_data(pdf_bytes, uid=None)
+    xlsx_file, _ = vaillant_pdf_to_xlsx_and_data(pdf_bytes, uid=None)
     return xlsx_file
 
 
-def epb_pdf_to_xlsx_and_data(
+def vaillant_pdf_to_xlsx_and_data(
     pdf_bytes: bytes,
     uid: Optional[int] = None
 ) -> Tuple[BytesIO, List[Dict]]:
