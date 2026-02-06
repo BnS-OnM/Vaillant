@@ -320,16 +320,20 @@ async def import_sale_order_from_excel(
 @app.post("/analyze-logs")
 async def analyze_logs(file: UploadFile = File(...)):
     """
-    Analyze CSV log files containing structured JSON logs.
+    Analyze log files containing structured JSON logs.
     
     This endpoint:
-    1. Parses CSV file containing structured log entries
+    1. Parses log file containing structured log entries (CSV or newline-delimited JSON)
     2. Extracts HTTP request information from log messages
     3. Provides statistics on request patterns, status codes, and error rates
     
-    Expected CSV format:
-    - CSV file with structured log entries (JSON format or flattened columns)
-    - Log entries should contain 'message' field with HTTP request details
+    Supported formats:
+    - CSV files (.csv): Structured log entries in CSV format with JSON or flattened columns
+    - Log files (.log): Newline-delimited JSON, one log entry per line
+    
+    Expected log entry structure:
+    - 'message' field with HTTP request details
+    - 'timestamp' field with ISO 8601 timestamp
     
     Returns:
     - total_requests: Total number of HTTP requests logged
@@ -339,17 +343,24 @@ async def analyze_logs(file: UploadFile = File(...)):
     - error_rate: Percentage of 4xx and 5xx responses
     - time_range: Earliest and latest timestamps in logs
     """
-    if not file.filename.lower().endswith(".csv"):
+    filename_lower = file.filename.lower()
+    
+    # Determine file format
+    if filename_lower.endswith(".csv"):
+        file_format = "csv"
+    elif filename_lower.endswith(".log"):
+        file_format = "ndjson"
+    else:
         return JSONResponse(
             status_code=400,
-            content={"error": "Upload een CSV-bestand"}
+            content={"error": "Upload een CSV- of LOG-bestand"}
         )
     
-    csv_bytes = await file.read()
+    log_bytes = await file.read()
     
     try:
         # Parse and analyze the log file
-        analyzer = LogAnalyzer(csv_bytes)
+        analyzer = LogAnalyzer(log_bytes, file_format=file_format)
         analyzer.parse()
         stats = analyzer.get_statistics()
         
