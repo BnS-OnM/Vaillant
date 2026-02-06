@@ -78,6 +78,12 @@ def search_product_by_name_or_description(uid: int, search_text: str) -> Optiona
     Search for a product in Odoo by its name or description.
     Used for legende items where matching should be based on product text rather than codes.
     
+    Search strategy:
+    1. Exact name match (case-sensitive)
+    2. Case-insensitive name match (ilike)
+    3. description_sale field (commonly used for sales descriptions in Odoo)
+    4. description field (may contain internal/purchase descriptions)
+    
     Args:
         uid: Odoo user ID
         search_text: Product name or description to search for
@@ -86,9 +92,9 @@ def search_product_by_name_or_description(uid: int, search_text: str) -> Optiona
         product_id if found, None otherwise
     """
     try:
-        # Search by name (exact match first)
+        # Search by name (exact match first) - limit to 1 result for efficiency
         products = call(uid, "product.product", "search", [
-            [["name", "=", search_text]]
+            [["name", "=", search_text]], 0, 1  # offset=0, limit=1
         ])
         
         if products:
@@ -97,29 +103,49 @@ def search_product_by_name_or_description(uid: int, search_text: str) -> Optiona
         
         # If no exact match, try case-insensitive match using ilike
         products = call(uid, "product.product", "search", [
-            [["name", "ilike", search_text]]
+            [["name", "ilike", search_text]], 0, 1  # offset=0, limit=1
         ])
         
         if products:
-            logger.info(f"Product found by name ilike '{search_text}': product_id={products[0]}")
+            # Check if multiple matches exist to warn about ambiguity
+            count = call(uid, "product.product", "search_count", [
+                [["name", "ilike", search_text]]
+            ])
+            if count > 1:
+                logger.warning(f"Multiple products ({count}) match name '{search_text}' - using first match: product_id={products[0]}")
+            else:
+                logger.info(f"Product found by name ilike '{search_text}': product_id={products[0]}")
             return products[0]
         
-        # Try searching in description field
+        # Try searching in description_sale field (used for sales/customer-facing descriptions)
         products = call(uid, "product.product", "search", [
-            [["description", "ilike", search_text]]
+            [["description_sale", "ilike", search_text]], 0, 1  # offset=0, limit=1
         ])
         
         if products:
-            logger.info(f"Product found by description ilike '{search_text}': product_id={products[0]}")
+            count = call(uid, "product.product", "search_count", [
+                [["description_sale", "ilike", search_text]]
+            ])
+            if count > 1:
+                logger.warning(f"Multiple products ({count}) match description_sale '{search_text}' - using first match: product_id={products[0]}")
+            else:
+                logger.info(f"Product found by description_sale ilike '{search_text}': product_id={products[0]}")
             return products[0]
         
-        # Try searching in description_sale field (common in Odoo)
+        # Try searching in description field (may contain internal/purchase descriptions)
+        # Note: This field is typically used for internal notes in Odoo, not customer-facing text
         products = call(uid, "product.product", "search", [
-            [["description_sale", "ilike", search_text]]
+            [["description", "ilike", search_text]], 0, 1  # offset=0, limit=1
         ])
         
         if products:
-            logger.info(f"Product found by description_sale ilike '{search_text}': product_id={products[0]}")
+            count = call(uid, "product.product", "search_count", [
+                [["description", "ilike", search_text]]
+            ])
+            if count > 1:
+                logger.warning(f"Multiple products ({count}) match description '{search_text}' - using first match: product_id={products[0]}")
+            else:
+                logger.info(f"Product found by description ilike '{search_text}': product_id={products[0]}")
             return products[0]
         
         logger.warning(f"No product found for name/description '{search_text}'")
