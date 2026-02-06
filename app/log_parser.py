@@ -12,12 +12,22 @@ class LogAnalyzer:
     
     Supported formats:
     1. CSV format:
-       - First row: headers (at minimum should have a column with JSON log entries)
-       - Subsequent rows: log entries in JSON format
+       - Automatically detects delimiter (comma, semicolon, tab, pipe)
+       - Handles multiple CSV formats:
+         a. Single column with JSON strings
+         b. Multiple columns where one contains the JSON log entry
+         c. Columns that represent the flattened log structure (message, timestamp, etc.)
+       - Skips empty rows gracefully
+       - Handles None/null values in cells
     
     2. Newline-delimited JSON (.log files):
        - Each line contains a complete JSON object
        - No headers required
+    
+    Features:
+    - Robust CSV dialect detection
+    - Type-safe value handling
+    - Graceful error handling with parse error tracking
     """
     
     def __init__(self, log_content: bytes, file_format: str = 'csv'):
@@ -38,13 +48,17 @@ class LogAnalyzer:
         Parse the log file and extract structured log entries.
         
         For CSV files:
-        - The CSV may have various formats:
+        - Automatically detects CSV dialect (delimiter, quoting style)
+        - Supports multiple CSV formats:
           1. Single column with JSON strings
           2. Multiple columns where one contains the JSON log entry
-          3. Columns that represent the flattened log structure
+          3. Flattened structure with separate columns (message, timestamp, level, tags.*)
+        - Skips completely empty rows
+        - Handles None/null values safely
         
         For NDJSON files (.log):
         - Each line contains a complete JSON object
+        - Skips empty lines
         """
         if self.file_format == 'ndjson':
             self._parse_ndjson()
@@ -79,7 +93,14 @@ class LogAnalyzer:
     
     def _parse_csv(self) -> None:
         """
-        Parse CSV log file.
+        Parse CSV log file with robust dialect detection and error handling.
+        
+        Features:
+        - Automatic dialect detection for different delimiters (comma, semicolon, tab, pipe)
+        - Falls back to default CSV format if detection fails
+        - Skips completely empty rows
+        - Type-safe value extraction
+        - Tracks parse errors for debugging
         """
         try:
             content = self.log_content.decode('utf-8')
@@ -116,11 +137,20 @@ class LogAnalyzer:
     
     def _extract_log_entry(self, row: Dict[str, str]) -> Dict[str, Any]:
         """
-        Extract log entry from a CSV row.
+        Extract log entry from a CSV row with multiple fallback strategies.
         
-        Tries multiple strategies:
-        1. Look for a column with JSON content
-        2. If the row itself looks like a structured log, use it directly
+        Tries three strategies in order:
+        1. Look for a column containing a complete JSON object
+        2. Reconstruct from flattened CSV structure (message, timestamp, level, tags.*)
+        3. If single column, try to parse as JSON
+        
+        All strategies include:
+        - Type checking to ensure values are strings
+        - Validation for non-empty values
+        - Safe handling of None/null values
+        
+        Returns:
+            Dict with log entry if successful, None otherwise
         """
         # Strategy 1: Look for columns that contain JSON
         for key, value in row.items():
