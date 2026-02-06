@@ -88,9 +88,9 @@ def parse_legend_blocks(text: str) -> List[str]:
     start = m.end()
     segment = txt[start:]
     
-    # Stop bij volgende sectie
+    # Stop bij volgende sectie (flexibeler patroon)
     stop_match = re.search(
-        r"\n\s*(bijlage|appendix|notes?|opmerkingen|specificaties|schema|totaal|subtotaal)\s*\n",
+        r"(^|\n)\s*(bijlage|appendix|notes?|opmerkingen|specificaties|schema|totaal|subtotaal|technische)\s*[:\n]",
         segment,
         flags=re.IGNORECASE
     )
