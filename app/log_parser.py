@@ -88,10 +88,25 @@ class LogAnalyzer:
             content = self.log_content.decode('utf-8-sig', errors='replace')
         
         csv_file = io.StringIO(content)
-        reader = csv.DictReader(csv_file)
+        
+        # Try to detect CSV dialect automatically to handle different delimiters
+        try:
+            sample = content[:8192]  # Use first 8KB for dialect detection
+            # Provide delimiters hint to avoid detecting spaces as delimiters
+            dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
+            csv_file.seek(0)
+            reader = csv.DictReader(csv_file, dialect=dialect)
+        except (csv.Error, Exception):
+            # Fall back to default dialect if detection fails
+            csv_file.seek(0)
+            reader = csv.DictReader(csv_file)
         
         for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
             try:
+                # Skip completely empty rows
+                if not row or not any(v for v in row.values() if v):
+                    continue
+                
                 # Try to find JSON in the row
                 log_entry = self._extract_log_entry(row)
                 if log_entry:
@@ -109,14 +124,17 @@ class LogAnalyzer:
         """
         # Strategy 1: Look for columns that contain JSON
         for key, value in row.items():
-            if value and value.strip().startswith('{'):
-                try:
-                    return json.loads(value)
-                except json.JSONDecodeError:
-                    continue
+            # Add null/None check and type validation
+            if value and isinstance(value, str):
+                value = value.strip()
+                if value.startswith('{') and value.endswith('}'):
+                    try:
+                        return json.loads(value)
+                    except json.JSONDecodeError:
+                        continue
         
         # Strategy 2: Check if the row has 'message' field (structured log format)
-        if 'message' in row:
+        if 'message' in row and row.get('message'):
             # Reconstruct the log entry from CSV columns
             log_entry = {
                 'message': row.get('message', ''),
@@ -132,7 +150,7 @@ class LogAnalyzer:
             # Add tags if present
             tags = {}
             for key, value in row.items():
-                if key.startswith('tags.'):
+                if key.startswith('tags.') and value:
                     tag_name = key.replace('tags.', '')
                     tags[tag_name] = value
             if tags:
@@ -143,11 +161,13 @@ class LogAnalyzer:
         # Strategy 3: If there's only one column, try to parse it as JSON
         if len(row) == 1:
             value = list(row.values())[0]
-            if value and value.strip().startswith('{'):
-                try:
-                    return json.loads(value)
-                except json.JSONDecodeError:
-                    pass
+            if value and isinstance(value, str):
+                value = value.strip()
+                if value.startswith('{') and value.endswith('}'):
+                    try:
+                        return json.loads(value)
+                    except json.JSONDecodeError:
+                        pass
         
         return None
     
