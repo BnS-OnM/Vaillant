@@ -14,6 +14,7 @@ from app.logging_middleware import StructuredLoggingMiddleware
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="FACQ PDF → XLSX Converter")
 
@@ -92,12 +93,15 @@ async def upload_pdf_and_import_to_odoo(
     try:
         # Detect PDF type
         pdf_type = detect_pdf_type(pdf_bytes)
+        logger.info(f"Detected PDF type: {pdf_type.value}")
         
         # Use appropriate converter based on PDF type
         if pdf_type == PDFType.EPB_VOORSTEL:
             xlsx_file, lines_data = epb_pdf_to_xlsx_and_data(pdf_bytes)
         else:
             # Default to FACQ parser for FACQ and unknown types
+            if pdf_type == PDFType.UNKNOWN:
+                logger.warning("Unknown PDF type detected, falling back to FACQ parser")
             xlsx_file, lines_data = facq_pdf_to_xlsx_and_data(pdf_bytes)
             
     except Exception as e:

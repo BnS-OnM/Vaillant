@@ -6,9 +6,16 @@ import re
 import unicodedata
 from typing import List, Tuple, Dict
 from io import BytesIO
+import logging
 
 import pdfplumber
 from openpyxl import Workbook
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+# Default Belgian VAT rate for EPB items (can be overridden)
+DEFAULT_EPB_TAX_PERCENT = 21
 
 def normalize_text(s: str) -> str:
     """Normaliseer tekst voor betere matching."""
@@ -151,7 +158,7 @@ def epb_pdf_to_xlsx_and_data(pdf_bytes: bytes) -> Tuple[BytesIO, List[Dict]]:
             "description": description,
             "quantity": qty,
             "unit_price": 0.0,  # No price information in EPB PDFs
-            "tax_percent": 21  # Default Belgian VAT
+            "tax_percent": DEFAULT_EPB_TAX_PERCENT
         })
     
     output = BytesIO()
