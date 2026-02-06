@@ -135,11 +135,13 @@ curl -X POST "http://localhost:8000/import-sale-order" \
 
 ## Log Analysis Usage
 
-Analyze CSV log files containing structured JSON logs from the application.
+Analyze log files containing structured JSON logs from the application.
 
-### Log File Format
+### Log File Formats
 
-The log analysis endpoint supports CSV files with structured log entries in two formats:
+The log analysis endpoint supports two file formats:
+
+#### CSV Files (.csv)
 
 **Format 1: JSON in CSV** (single column with JSON strings)
 ```csv
@@ -155,11 +157,24 @@ message,timestamp,level,tags.project,tags.environment
 "192.168.1.2:50001 - ""POST /upload-xlsx HTTP/1.1"" 500 Internal Server Error",2026-02-06T10:31:00.123456Z,info,vaillant,production
 ```
 
+#### Log Files (.log)
+
+**Newline-delimited JSON** (one JSON object per line)
+```json
+{"message": "192.168.1.1:50000 - \"GET / HTTP/1.1\" 200 OK", "timestamp": "2026-02-06T10:30:45.123456Z", "attributes": {"level": "info"}}
+{"message": "192.168.1.2:50001 - \"POST /upload-xlsx HTTP/1.1\" 500 Internal Server Error", "timestamp": "2026-02-06T10:31:00.123456Z", "attributes": {"level": "info"}}
+```
+
 ### API Call
 
 ```bash
+# Analyze CSV file
 curl -X POST "http://localhost:8000/analyze-logs" \
   -F "file=@logs.csv"
+
+# Analyze LOG file
+curl -X POST "http://localhost:8000/analyze-logs" \
+  -F "file=@logs.1770418247056.log"
 ```
 
 ### Response

@@ -8,33 +8,84 @@ from datetime import datetime
 
 class LogAnalyzer:
     """
-    Analyzer for CSV log files containing structured JSON logs from StructuredLoggingMiddleware.
+    Analyzer for log files containing structured JSON logs from StructuredLoggingMiddleware.
     
-    Expected CSV format:
-    - First row: headers (at minimum should have a column with JSON log entries)
-    - Subsequent rows: log entries in JSON format
+    Supported formats:
+    1. CSV format:
+       - First row: headers (at minimum should have a column with JSON log entries)
+       - Subsequent rows: log entries in JSON format
+    
+    2. Newline-delimited JSON (.log files):
+       - Each line contains a complete JSON object
+       - No headers required
     """
     
-    def __init__(self, csv_content: bytes):
-        """Initialize with CSV content."""
-        self.csv_content = csv_content
+    def __init__(self, log_content: bytes, file_format: str = 'csv'):
+        """
+        Initialize with log content.
+        
+        Args:
+            log_content: Raw bytes of the log file
+            file_format: Format of the log file ('csv' or 'ndjson')
+        """
+        self.log_content = log_content
+        self.file_format = file_format
         self.logs: List[Dict[str, Any]] = []
         self.parse_errors: List[str] = []
     
     def parse(self) -> None:
         """
-        Parse the CSV file and extract structured log entries.
+        Parse the log file and extract structured log entries.
         
-        The CSV may have various formats:
-        1. Single column with JSON strings
-        2. Multiple columns where one contains the JSON log entry
-        3. Columns that represent the flattened log structure
+        For CSV files:
+        - The CSV may have various formats:
+          1. Single column with JSON strings
+          2. Multiple columns where one contains the JSON log entry
+          3. Columns that represent the flattened log structure
+        
+        For NDJSON files (.log):
+        - Each line contains a complete JSON object
+        """
+        if self.file_format == 'ndjson':
+            self._parse_ndjson()
+        else:
+            self._parse_csv()
+    
+    def _parse_ndjson(self) -> None:
+        """
+        Parse newline-delimited JSON log file.
+        Each line should be a complete JSON object.
         """
         try:
-            content = self.csv_content.decode('utf-8')
+            content = self.log_content.decode('utf-8')
         except UnicodeDecodeError:
             # Try alternative encoding
-            content = self.csv_content.decode('utf-8-sig', errors='replace')
+            content = self.log_content.decode('utf-8-sig', errors='replace')
+        
+        lines = content.strip().split('\n')
+        
+        for line_num, line in enumerate(lines, start=1):
+            line = line.strip()
+            if not line:  # Skip empty lines
+                continue
+            
+            try:
+                log_entry = json.loads(line)
+                self.logs.append(log_entry)
+            except json.JSONDecodeError as e:
+                self.parse_errors.append(f"Line {line_num}: Invalid JSON - {str(e)}")
+            except Exception as e:
+                self.parse_errors.append(f"Line {line_num}: {str(e)}")
+    
+    def _parse_csv(self) -> None:
+        """
+        Parse CSV log file.
+        """
+        try:
+            content = self.log_content.decode('utf-8')
+        except UnicodeDecodeError:
+            # Try alternative encoding
+            content = self.log_content.decode('utf-8-sig', errors='replace')
         
         csv_file = io.StringIO(content)
         reader = csv.DictReader(csv_file)
