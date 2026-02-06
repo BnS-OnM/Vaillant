@@ -21,12 +21,18 @@ DEFAULT_EPB_TAX_PERCENT = 21
 # Made more flexible to match optional codes
 LEGEND_INDICATOR_PATTERN = r"^(\d+[a-z]+)[\s\.\)\-:,]+"
 
-# Product-related keywords to identify valid legend items
+# Product-related keywords to identify valid legend items (English and Dutch)
 PRODUCT_KEYWORDS = [
+    # English
     'pump', 'valve', 'vessel', 'sensor', 'module', 'cylinder', 'heat', 'cooling',
     'circuit', 'expansion', 'safety', 'assembly', 'non-return', 'mixing', 'circulation',
     'heating', 'potable', 'water', 'domestic', 'hot', 'boiler', 'split', 'plus',
-    'hydraulic', 'vaillant', 'arotherm', 'unistor', 'vrc', 'vr', 'vp', 'vw'
+    'hydraulic', 'vaillant', 'arotherm', 'unistor', 'vrc', 'vr', 'vp', 'vw',
+    # Dutch
+    'pomp', 'klep', 'vat', 'sensor', 'module', 'cilinder', 'warmte', 'koeling',
+    'circuit', 'expansie', 'veiligheid', 'mengklep', 'circulatie',
+    'verwarming', 'drink', 'water', 'huishoudelijk', 'warm', 'ketel', 'split',
+    'hydraulisch',
 ]
 
 # Noise patterns to filter out (schema elements, coordinates, short codes)
