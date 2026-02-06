@@ -97,7 +97,16 @@ async def upload_pdf_and_import_to_odoo(
         
         # Use appropriate converter based on PDF type
         if pdf_type == PDFType.EPB_VOORSTEL:
-            xlsx_file, lines_data = epb_pdf_to_xlsx_and_data(pdf_bytes)
+            # For EPB PDFs, try to get uid for fuzzy matching
+            uid = None
+            try:
+                from app.odoo import login
+                uid = login()
+                logger.info("Odoo uid obtained for EPB fuzzy matching")
+            except Exception as e:
+                logger.warning(f"Could not get Odoo uid for fuzzy matching: {str(e)}")
+            
+            xlsx_file, lines_data = epb_pdf_to_xlsx_and_data(pdf_bytes, uid=uid)
         else:
             # Default to FACQ parser for FACQ and unknown types
             if pdf_type == PDFType.UNKNOWN:
