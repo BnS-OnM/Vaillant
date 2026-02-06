@@ -205,5 +205,3 @@ The endpoint returns statistics about the logged requests:
 - `error_rate`: Percentage of 4xx and 5xx responses
 - `time_range`: Earliest and latest timestamps in the logs
 - `parse_errors_count`: Number of rows that could not be parsed
-- If no matching product is found, a description-only line is created with the product code and description
-- This ensures proper product tracking and inventory management in Odoo
