@@ -104,6 +104,10 @@ def fuzzy_search_product_by_name(uid: int, product_name: str, threshold: float =
             logger.warning("No products found in database for fuzzy matching")
             return None
         
+        # Warn if we hit the limit, as there may be more products
+        if len(products) >= 1000:
+            logger.warning(f"Fuzzy search limited to first 1000 products. Database may contain more products that won't be considered for matching '{product_name}'.")
+        
         # Normalize the search term
         normalized_search = product_name.lower().strip()
         
@@ -271,7 +275,7 @@ def create_quotation_from_xlsx_data(
         else:
             # EPB products (no product code): use fuzzy matching by name
             if description:
-                product_id = fuzzy_search_product_by_name(uid, description, threshold=0.6)
+                product_id = fuzzy_search_product_by_name(uid, description, threshold=FUZZY_MATCH_THRESHOLD)
                 
                 if product_id:
                     products_found += 1
@@ -339,7 +343,7 @@ def create_quotation_from_xlsx_data(
         try:
             call(uid, "sale.order.line", "create", [order_line_data])
         except Exception as e:
-            logger.error(f"Failed to create order line for product '{product_code or description[:30]}': {str(e)}")
+            logger.error(f"Failed to create order line for product '{product_code or (description or '')[:30]}': {str(e)}")
             raise
 
     logger.info(f"Quotation created successfully: {products_found} products found, {products_created} products created, {products_not_found} description lines created")
