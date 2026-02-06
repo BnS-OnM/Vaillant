@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, Request, Form
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from typing import Optional
 import os
@@ -22,6 +22,14 @@ templates = Jinja2Templates(directory="app/templates")
 
 # Configuration
 DEFAULT_CUSTOMER_NAME = os.getenv("DEFAULT_CUSTOMER_NAME", "FACQ Customer")
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    """
+    Return empty response for favicon to prevent 404 errors
+    """
+    return Response(status_code=204)
 
 
 @app.get("/", response_class=HTMLResponse)
