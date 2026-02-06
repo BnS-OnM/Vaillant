@@ -47,6 +47,11 @@ NOISE_PATTERNS = [
     r'^[a-z]+\d+:\d+$',  # Codes with colons: vrc720:8
 ]
 
+# Generic words to filter out in multi-word items
+GENERIC_FILTER_WORDS = [
+    'additional', 'information', 'here', 'some', 'footer', 'text', 'page', 'document'
+]
+
 def normalize_text(s: str) -> str:
     """Normaliseer tekst voor betere matching."""
     if s is None:
@@ -62,6 +67,9 @@ def is_valid_legend_item(text: str) -> bool:
     """
     Filter ruis zoals schema-elementen, coördinaten, korte codes.
     
+    Args:
+        text: The legend item text to validate
+    
     Returns:
         True if the item is valid (product name), False if it's noise
     """
@@ -76,7 +84,7 @@ def is_valid_legend_item(text: str) -> bool:
             return False
     
     # Filter out items that are just 1-2 letters followed by digits (but allow vr, vp, vw with digits)
-    if re.match(r'^[a-z]{1,2}\d+$', text_lower) and not text_lower[:2] in ['vr', 'vp', 'vw']:
+    if re.match(r'^[a-z]{1,2}\d+$', text_lower) and not text_lower.startswith(('vr', 'vp', 'vw')):
         logger.debug(f"Filtered out noise (short code): '{text}'")
         return False
     
@@ -93,8 +101,7 @@ def is_valid_legend_item(text: str) -> bool:
     if len(words) >= 2:
         # For multi-word items, check that they're not generic descriptions
         # Filter out generic phrases like "additional information here"
-        generic_words = ['additional', 'information', 'here', 'some', 'footer', 'text', 'page', 'document']
-        if any(word in generic_words for word in words):
+        if any(word in GENERIC_FILTER_WORDS for word in words):
             # Only keep if it also has product keywords
             has_keyword = any(keyword in text_lower for keyword in PRODUCT_KEYWORDS)
             if not has_keyword:
@@ -207,6 +214,8 @@ def fuzzy_match_legend_items(
     """
     Match legende items met Odoo productcatalogus via fuzzy matching.
     
+    Note: Local import is used to avoid circular dependency between pdf_epb_to_odoo and odoo modules.
+    
     Args:
         legend_items: Lijst van rauwe items uit PDF
         uid: Odoo user ID voor database access
@@ -216,24 +225,23 @@ def fuzzy_match_legend_items(
         Lijst van matched items met product_id en confidence score
         Format: [{"description": str, "product_id": int|None, "confidence": float}, ...]
     """
-    from app.odoo import fuzzy_search_product_by_name
+    from app.odoo import fuzzy_search_product_with_confidence
     
     matched_items = []
     
     for item in legend_items:
         try:
             # Try fuzzy matching with Odoo catalog
-            product_id = fuzzy_search_product_by_name(uid, item, threshold=threshold)
+            result = fuzzy_search_product_with_confidence(uid, item, threshold=threshold)
             
-            if product_id:
-                # Match found - we'll get the confidence from the logs
-                # The fuzzy_search_product_by_name logs the similarity ratio
+            if result:
+                product_id, confidence = result
                 matched_items.append({
                     "description": item,
                     "product_id": product_id,
-                    "confidence": threshold,  # Minimum confidence (actual is >= this)
+                    "confidence": confidence,
                 })
-                logger.info(f"Fuzzy match: '{item}' → product_id={product_id}")
+                logger.info(f"Fuzzy match: '{item}' → product_id={product_id} (confidence: {confidence:.2f})")
             else:
                 # No match found - keep as description-only
                 matched_items.append({

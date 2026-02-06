@@ -1,7 +1,7 @@
 import os
 import requests
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from difflib import SequenceMatcher
 
 # Configure logging - basicConfig is idempotent and won't reconfigure if already set up
@@ -90,6 +90,23 @@ def fuzzy_search_product_by_name(uid: int, product_name: str, threshold: float =
     Returns:
         product_id if found with similarity >= threshold, None otherwise
     """
+    result = fuzzy_search_product_with_confidence(uid, product_name, threshold)
+    return result[0] if result else None
+
+
+def fuzzy_search_product_with_confidence(uid: int, product_name: str, threshold: float = FUZZY_MATCH_THRESHOLD) -> Optional[Tuple[int, float]]:
+    """
+    Search for a product in Odoo by fuzzy matching on the product name.
+    Uses sequence matching to find similar product names.
+    
+    Args:
+        uid: Odoo user ID
+        product_name: Product name to search for
+        threshold: Minimum similarity ratio (0.0 to 1.0) to consider a match. Default is FUZZY_MATCH_THRESHOLD
+    
+    Returns:
+        Tuple of (product_id, confidence) if found with similarity >= threshold, None otherwise
+    """
     try:
         # Get all active products with their names
         # Note: For large databases, consider adding filters or pagination
@@ -137,7 +154,7 @@ def fuzzy_search_product_by_name(uid: int, product_name: str, threshold: float =
         
         if best_match and best_ratio >= threshold:
             logger.info(f"Fuzzy match found for '{product_name}': '{best_match['name']}' (similarity: {best_ratio:.2f}, product_id={best_match['id']})")
-            return best_match["id"]
+            return (best_match["id"], best_ratio)
         else:
             logger.warning(f"No fuzzy match found for '{product_name}' (best match: {best_ratio:.2f}, threshold: {threshold})")
             return None
