@@ -118,6 +118,80 @@ def search_product_by_reference(uid: int, product_code: str) -> Optional[int]:
 
 
 def search_product_by_fuzzy_name(uid: int, product_name: str, min_similarity: float = MIN_FUZZY_MATCH_THRESHOLD) -> Optional[Tuple[int, str, float]]:
+def search_product_by_name_or_description(uid: int, search_text: str) -> Optional[int]:
+    """
+    Search for a product in Odoo by its name or description.
+    Used for legende items where matching should be based on product text rather than codes.
+    
+    Search strategy:
+    1. Exact name match (case-sensitive)
+    2. Case-insensitive name match (ilike)
+    3. description_sale field (commonly used for sales descriptions in Odoo)
+    4. description field (may contain internal/purchase descriptions)
+    
+    Args:
+        uid: Odoo user ID
+        search_text: Product name or description to search for
+    
+    Returns:
+        product_id if found, None otherwise
+    """
+    try:
+        # Search by name (exact match first)
+        products = call(uid, "product.product", "search", [
+            [["name", "=", search_text]]
+        ])
+        
+        if products:
+            logger.info(f"Product found by exact name match '{search_text}': product_id={products[0]}")
+            return products[0]
+        
+        # If no exact match, try case-insensitive match using ilike
+        products = call(uid, "product.product", "search", [
+            [["name", "ilike", search_text]]
+        ])
+        
+        if products:
+            # Check if multiple matches exist to warn about ambiguity
+            if len(products) > 1:
+                logger.warning(f"Multiple products ({len(products)}) match name '{search_text}' - using first match: product_id={products[0]}")
+            else:
+                logger.info(f"Product found by name ilike '{search_text}': product_id={products[0]}")
+            return products[0]
+        
+        # Try searching in description_sale field (used for sales/customer-facing descriptions)
+        products = call(uid, "product.product", "search", [
+            [["description_sale", "ilike", search_text]]
+        ])
+        
+        if products:
+            if len(products) > 1:
+                logger.warning(f"Multiple products ({len(products)}) match description_sale '{search_text}' - using first match: product_id={products[0]}")
+            else:
+                logger.info(f"Product found by description_sale ilike '{search_text}': product_id={products[0]}")
+            return products[0]
+        
+        # Try searching in description field (internal/purchase descriptions and notes)
+        # Note: In Odoo, this field typically contains technical details, purchase info, or internal notes
+        products = call(uid, "product.product", "search", [
+            [["description", "ilike", search_text]]
+        ])
+        
+        if products:
+            if len(products) > 1:
+                logger.warning(f"Multiple products ({len(products)}) match description '{search_text}' - using first match: product_id={products[0]}")
+            else:
+                logger.info(f"Product found by description ilike '{search_text}': product_id={products[0]}")
+            return products[0]
+        
+        logger.warning(f"No product found for name/description '{search_text}'")
+        return None
+    except Exception as e:
+        logger.error(f"Error searching for product by name/description '{search_text}': {str(e)}")
+        return None
+
+
+def create_product(uid: int, product_code: str, description: str, unit_price: float) -> Optional[int]:
     """
     Search for a product in Odoo by fuzzy matching the product name.
     
@@ -288,12 +362,13 @@ def create_quotation_from_xlsx_data(
         quantity = line.get("quantity", 1)
         unit_price = line.get("unit_price", 0.0)
         
-        # Try to find the product by its reference code
+        # Try to find the product
         product_id = None
         fuzzy_matched_name = None
         
         if product_code:
             # Try exact match by product code
+            # If product_code exists, search by reference (FACQ flow)
             product_id = search_product_by_reference(uid, product_code)
             
             if product_id:
@@ -312,6 +387,13 @@ def create_quotation_from_xlsx_data(
                 if product_id:
                     products_created += 1
                     logger.info(f"Created new product for '{description}' (0% match)")
+            # If not found, product_id stays None and will create description line
+        elif description:
+            # No product_code - search by name/description (legende flow)
+            product_id = search_product_by_name_or_description(uid, description)
+            
+            if product_id:
+                products_found += 1
         
         # Prepare order line data
         order_line_data = {
@@ -328,6 +410,10 @@ def create_quotation_from_xlsx_data(
                 logger.info(f"Creating product line with fuzzy matched product '{fuzzy_matched_name}' (ID: {product_id})")
             else:
                 logger.info(f"Creating product line for product_id={product_id}")
+            if product_code:
+                logger.info(f"Creating product line for '{product_code}' with product_id={product_id}")
+            else:
+                logger.info(f"Creating product line for '{description}' with product_id={product_id}")
         else:
             # Product not found - create a description line
             if product_code:
