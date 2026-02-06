@@ -73,6 +73,62 @@ def search_product_by_reference(uid: int, product_code: str) -> Optional[int]:
         return None
 
 
+def search_product_by_name_or_description(uid: int, search_text: str) -> Optional[int]:
+    """
+    Search for a product in Odoo by its name or description.
+    Used for legende items where matching should be based on product text rather than codes.
+    
+    Args:
+        uid: Odoo user ID
+        search_text: Product name or description to search for
+    
+    Returns:
+        product_id if found, None otherwise
+    """
+    try:
+        # Search by name (exact match first)
+        products = call(uid, "product.product", "search", [
+            [["name", "=", search_text]]
+        ])
+        
+        if products:
+            logger.info(f"Product found by exact name match '{search_text}': product_id={products[0]}")
+            return products[0]
+        
+        # If no exact match, try case-insensitive match using ilike
+        products = call(uid, "product.product", "search", [
+            [["name", "ilike", search_text]]
+        ])
+        
+        if products:
+            logger.info(f"Product found by name ilike '{search_text}': product_id={products[0]}")
+            return products[0]
+        
+        # Try searching in description field
+        products = call(uid, "product.product", "search", [
+            [["description", "ilike", search_text]]
+        ])
+        
+        if products:
+            logger.info(f"Product found by description ilike '{search_text}': product_id={products[0]}")
+            return products[0]
+        
+        # Try searching in description_sale field (common in Odoo)
+        products = call(uid, "product.product", "search", [
+            [["description_sale", "ilike", search_text]]
+        ])
+        
+        if products:
+            logger.info(f"Product found by description_sale ilike '{search_text}': product_id={products[0]}")
+            return products[0]
+        
+        logger.warning(f"No product found for name/description '{search_text}'")
+        return None
+    except Exception as e:
+        logger.error(f"Error searching for product by name/description '{search_text}': {str(e)}")
+        return None
+
+
 def create_product(uid: int, product_code: str, description: str, unit_price: float) -> Optional[int]:
     """
     DEPRECATED: This function is no longer used in the quotation flow.
@@ -188,14 +244,21 @@ def create_quotation_from_xlsx_data(
         quantity = line.get("quantity", 1)
         unit_price = line.get("unit_price", 0.0)
         
-        # Try to find the product by its reference code
+        # Try to find the product
         product_id = None
         if product_code:
+            # If product_code exists, search by reference (FACQ flow)
             product_id = search_product_by_reference(uid, product_code)
             
             if product_id:
                 products_found += 1
             # If not found, product_id stays None and will create description line
+        elif description:
+            # No product_code - search by name/description (legende flow)
+            product_id = search_product_by_name_or_description(uid, description)
+            
+            if product_id:
+                products_found += 1
         
         # Prepare order line data
         order_line_data = {
@@ -208,7 +271,10 @@ def create_quotation_from_xlsx_data(
             # Product found - create a product line
             order_line_data["product_id"] = product_id
             # Let Odoo auto-fill the description from the product record
-            logger.info(f"Creating product line for '{product_code}' with product_id={product_id}")
+            if product_code:
+                logger.info(f"Creating product line for '{product_code}' with product_id={product_id}")
+            else:
+                logger.info(f"Creating product line for '{description}' with product_id={product_id}")
         else:
             # Product not found - create a description line
             if product_code:

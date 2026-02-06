@@ -147,9 +147,11 @@ def parse_sale_order_xlsx(xlsx_bytes: bytes) -> Dict[str, Any]:
             'omschrijving': 'description',
             'description': 'description',
             'name': 'description',
+            'item beschrijving': 'description',  # For EPB legende items
             'hoeveelheid': 'quantity',
             'quantity': 'quantity',
             'qty': 'quantity',
+            'aantal': 'quantity',  # For EPB legende items
             'eenheidsprijs': 'unit_price',
             'unit price': 'unit_price',
             'price unit': 'unit_price',
