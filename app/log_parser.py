@@ -103,8 +103,8 @@ class LogAnalyzer:
         
         for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
             try:
-                # Skip completely empty rows
-                if not row or not any(v for v in row.values() if v):
+                # Skip completely empty rows (rows with no non-empty string values)
+                if not row or not any(v and isinstance(v, str) and v.strip() for v in row.values()):
                     continue
                 
                 # Try to find JSON in the row
@@ -134,7 +134,8 @@ class LogAnalyzer:
                         continue
         
         # Strategy 2: Check if the row has 'message' field (structured log format)
-        if 'message' in row and row.get('message'):
+        # We check both that 'message' key exists and has a non-empty string value
+        if 'message' in row and row.get('message') and isinstance(row.get('message'), str) and row['message'].strip():
             # Reconstruct the log entry from CSV columns
             log_entry = {
                 'message': row.get('message', ''),
@@ -147,10 +148,10 @@ class LogAnalyzer:
                     'level': row.get('level') or row.get('attributes.level', 'info')
                 }
             
-            # Add tags if present
+            # Add tags if present (only include non-empty string tags)
             tags = {}
             for key, value in row.items():
-                if key.startswith('tags.') and value:
+                if key.startswith('tags.') and value and isinstance(value, str) and value.strip():
                     tag_name = key.replace('tags.', '')
                     tags[tag_name] = value
             if tags:
