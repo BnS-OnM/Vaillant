@@ -214,12 +214,11 @@ def create_quotation_from_xlsx_data(
             if product_code:
                 order_line_data["name"] = f"[{product_code}] {description}"
                 logger.warning(f"Product '{product_code}' not found in database - creating description line")
-                products_not_found += 1
             else:
                 order_line_data["name"] = description
                 truncated_desc = description[:LOG_DESCRIPTION_MAX_LENGTH] + ('...' if len(description) > LOG_DESCRIPTION_MAX_LENGTH else '')
                 logger.warning(f"No product code provided - creating description line: {truncated_desc}")
-                products_not_found += 1
+            products_not_found += 1
         
         # TODO: Add tax handling for production environments
         # Tax handling in Odoo requires finding the tax record by rate
