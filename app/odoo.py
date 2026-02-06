@@ -4,6 +4,8 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from difflib import SequenceMatcher
 
+from app.constants import MIN_FUZZY_MATCH_THRESHOLD
+
 # Configure logging - basicConfig is idempotent and won't reconfigure if already set up
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -15,7 +17,6 @@ ODOO_PASSWORD = os.getenv("ODOO_PASSWORD")
 
 # Constants
 LOG_DESCRIPTION_MAX_LENGTH = 50
-MIN_FUZZY_MATCH_THRESHOLD = 0.6  # Minimum similarity for fuzzy matching (60%)
 
 def normalize_text_for_matching(s: str) -> str:
     """Normaliseer tekst voor product matching."""
@@ -120,6 +121,9 @@ def search_product_by_fuzzy_name(uid: int, product_name: str, min_similarity: fl
     """
     Search for a product in Odoo by fuzzy matching the product name.
     
+    Note: This function retrieves all products for fuzzy matching. For large catalogs (>1000 products),
+    consider implementing pagination or caching strategies to improve performance.
+    
     Args:
         uid: Odoo user ID
         product_name: Product name to search for
@@ -130,6 +134,7 @@ def search_product_by_fuzzy_name(uid: int, product_name: str, min_similarity: fl
     """
     try:
         # Search all products - get name and id
+        # TODO: For large catalogs, consider implementing pagination or caching
         products = call(uid, "product.product", "search_read", [
             [],  # No domain filter - search all products
             ["id", "name"]  # Fields to retrieve

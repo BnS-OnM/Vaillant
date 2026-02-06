@@ -12,14 +12,13 @@ from difflib import SequenceMatcher
 import pdfplumber
 from openpyxl import Workbook
 
+from app.constants import MIN_FUZZY_MATCH_THRESHOLD
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # Default Belgian VAT rate for EPB items (can be overridden)
 DEFAULT_EPB_TAX_PERCENT = 21
-
-# Minimum similarity threshold for fuzzy matching (0.0 to 1.0)
-MIN_FUZZY_MATCH_THRESHOLD = 0.6
 
 def normalize_text(s: str) -> str:
     """Normaliseer tekst voor betere matching."""
