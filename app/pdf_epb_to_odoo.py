@@ -4,9 +4,10 @@ Gebaseerd op ChatGPT's legende-matching code
 """
 import re
 import unicodedata
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from io import BytesIO
 import logging
+from difflib import SequenceMatcher
 
 import pdfplumber
 from openpyxl import Workbook
@@ -16,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 # Default Belgian VAT rate for EPB items (can be overridden)
 DEFAULT_EPB_TAX_PERCENT = 21
+
+# Minimum similarity threshold for fuzzy matching (0.0 to 1.0)
+MIN_FUZZY_MATCH_THRESHOLD = 0.6
 
 def normalize_text(s: str) -> str:
     """Normaliseer tekst voor betere matching."""
@@ -27,8 +31,55 @@ def normalize_text(s: str) -> str:
     s = re.sub(r"\s+", " ", s).strip()
     return s.lower()
 
+def remove_designation_prefix(text: str) -> str:
+    """
+    Verwijder aanduiding prefix van productnaam (bijv. "1a", "2a", "3a").
+    
+    Voorbeelden:
+    - "1a Warmtepomp" -> "Warmtepomp"
+    - "2a Ventilatiesysteem" -> "Ventilatiesysteem"
+    - "3a,4a Radiator" -> "Radiator"
+    """
+    # Pattern: cijfer gevolgd door letter(s), optioneel met komma en meer cijfer+letter combinaties
+    # Voorbeelden: 1a, 2a, 3a, 1a,2a, 3a,4a
+    pattern = r'^[\s]*(?:\d+[a-zA-Z]+[,\s]*)+[\s]*'
+    cleaned = re.sub(pattern, '', text).strip()
+    return cleaned
+
+def calculate_similarity(text1: str, text2: str) -> float:
+    """
+    Bereken similariteit tussen twee teksten (0.0 - 1.0).
+    Gebruikt SequenceMatcher voor fuzzy matching.
+    """
+    # Normaliseer beide teksten
+    norm1 = normalize_text(text1)
+    norm2 = normalize_text(text2)
+    
+    # Bereken exacte match
+    if norm1 == norm2:
+        return 1.0
+    
+    # Bereken sequentie similarity
+    seq_similarity = SequenceMatcher(None, norm1, norm2).ratio()
+    
+    # Bereken ook word-based similarity (overeenkomstige woorden)
+    words1 = set(norm1.split())
+    words2 = set(norm2.split())
+    
+    if not words1 or not words2:
+        return seq_similarity
+    
+    common_words = words1.intersection(words2)
+    word_similarity = len(common_words) / max(len(words1), len(words2))
+    
+    # Gebruik het maximum van beide methodes
+    return max(seq_similarity, word_similarity)
+
 def parse_legend_blocks(text: str) -> List[str]:
-    """Zoek sectie 'Legende' en pak regels tot volgende sectie."""
+    """
+    Zoek sectie 'Legende' en pak regels met aanduiding prefix (bijv. 1a, 2a, 3a).
+    Verwijder de aanduiding prefix van de productnamen.
+    """
     txt = text
     m = re.search(r"(^|\n)\s*legende\s*[:\n]", txt, flags=re.IGNORECASE)
     if not m:
@@ -50,12 +101,21 @@ def parse_legend_blocks(text: str) -> List[str]:
     lines = [normalize_text(l) for l in segment.splitlines()]
     lines = [l for l in lines if l and not l.startswith("pagina ") and len(l) >= 2]
     
-    # Items herkennen
+    # Items herkennen - Focus op regels met aanduiding prefix (cijfer + letter)
     item_like = []
+    designation_pattern = re.compile(r'^\s*\d+[a-zA-Z]+')
+    
     for l in lines:
-        if re.search(r"^[•\-\*\d]+[\)\.\-\s]", l) or re.search(r"[a-z0-9]{2,}", l):
+        # Check of de regel begint met een aanduiding prefix (bijv. 1a, 2a, 3a)
+        if designation_pattern.match(l):
+            # Verwijder de aanduiding prefix
+            cleaned = remove_designation_prefix(l)
+            if cleaned and len(cleaned) >= 2:
+                item_like.append(cleaned)
+        # Fallback: herken ook andere list-achtige items als geen aanduiding gevonden
+        elif re.search(r"^[•\-\*\d]+[\)\.\-\s]", l) or re.search(r"[a-z0-9]{2,}", l):
             l2 = re.sub(r"^(•|\-|\*|\d+[\)\.\-\s])+", "", l).strip()
-            if l2:
+            if l2 and len(l2) >= 2:
                 item_like.append(l2)
     
     # Deduplicatie
@@ -66,6 +126,7 @@ def parse_legend_blocks(text: str) -> List[str]:
             seen.add(l)
             unique_items.append(l)
     
+    logger.info(f"Parsed {len(unique_items)} items from legend (after removing designation prefixes)")
     return unique_items
 
 def extract_qty(item: str) -> Tuple[str, int]:

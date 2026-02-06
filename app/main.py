@@ -118,10 +118,16 @@ async def upload_pdf_and_import_to_odoo(
     odoo_config_error = None
     if lines_data:
         try:
+            # Enable fuzzy matching and auto-create for EPB PDFs
+            enable_fuzzy = (pdf_type == PDFType.EPB_VOORSTEL)
+            auto_create = (pdf_type == PDFType.EPB_VOORSTEL)
+            
             odoo_order_id = create_quotation_from_xlsx_data(
                 lines=lines_data,
                 customer_name=customer_name or DEFAULT_CUSTOMER_NAME,
-                customer_email=customer_email
+                customer_email=customer_email,
+                enable_fuzzy_matching=enable_fuzzy,
+                auto_create_products=auto_create
             )
         except ValueError as e:
             # Odoo configuration is missing - this is expected when Odoo is not set up

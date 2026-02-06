@@ -1,7 +1,8 @@
 import os
 import requests
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
+from difflib import SequenceMatcher
 
 # Configure logging - basicConfig is idempotent and won't reconfigure if already set up
 logger = logging.getLogger(__name__)
@@ -14,6 +15,48 @@ ODOO_PASSWORD = os.getenv("ODOO_PASSWORD")
 
 # Constants
 LOG_DESCRIPTION_MAX_LENGTH = 50
+MIN_FUZZY_MATCH_THRESHOLD = 0.6  # Minimum similarity for fuzzy matching (60%)
+
+def normalize_text_for_matching(s: str) -> str:
+    """Normaliseer tekst voor product matching."""
+    if s is None:
+        return ""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = s.replace("\xa0", " ")
+    import re
+    s = re.sub(r"\s+", " ", s).strip()
+    return s.lower()
+
+def calculate_text_similarity(text1: str, text2: str) -> float:
+    """
+    Bereken similariteit tussen twee teksten (0.0 - 1.0).
+    Gebruikt SequenceMatcher voor fuzzy matching.
+    """
+    # Normaliseer beide teksten
+    norm1 = normalize_text_for_matching(text1)
+    norm2 = normalize_text_for_matching(text2)
+    
+    # Bereken exacte match
+    if norm1 == norm2:
+        return 1.0
+    
+    # Bereken sequentie similarity
+    seq_similarity = SequenceMatcher(None, norm1, norm2).ratio()
+    
+    # Bereken ook word-based similarity (overeenkomstige woorden)
+    words1 = set(norm1.split())
+    words2 = set(norm2.split())
+    
+    if not words1 or not words2:
+        return seq_similarity
+    
+    common_words = words1.intersection(words2)
+    word_similarity = len(common_words) / max(len(words1), len(words2))
+    
+    # Gebruik het maximum van beide methodes
+    return max(seq_similarity, word_similarity)
 
 def login():
     payload = {
@@ -73,17 +116,60 @@ def search_product_by_reference(uid: int, product_code: str) -> Optional[int]:
         return None
 
 
-def create_product(uid: int, product_code: str, description: str, unit_price: float) -> Optional[int]:
+def search_product_by_fuzzy_name(uid: int, product_name: str, min_similarity: float = MIN_FUZZY_MATCH_THRESHOLD) -> Optional[Tuple[int, str, float]]:
     """
-    DEPRECATED: This function is no longer used in the quotation flow.
-    Products are not automatically created when importing quotations.
-    Use the /import-products endpoint to explicitly import products into Odoo.
-    
-    Create a new product in Odoo with the given details.
+    Search for a product in Odoo by fuzzy matching the product name.
     
     Args:
         uid: Odoo user ID
-        product_code: Product reference/code (will be set as default_code)
+        product_name: Product name to search for
+        min_similarity: Minimum similarity threshold (0.0 - 1.0)
+    
+    Returns:
+        Tuple of (product_id, matched_name, similarity_score) if found with sufficient similarity, None otherwise
+    """
+    try:
+        # Search all products - get name and id
+        products = call(uid, "product.product", "search_read", [
+            [],  # No domain filter - search all products
+            ["id", "name"]  # Fields to retrieve
+        ])
+        
+        if not products:
+            logger.warning(f"No products found in database for fuzzy matching")
+            return None
+        
+        best_match = None
+        best_similarity = 0.0
+        
+        # Find best matching product
+        for product in products:
+            similarity = calculate_text_similarity(product_name, product["name"])
+            
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_match = product
+        
+        if best_similarity >= min_similarity:
+            logger.info(f"Fuzzy match found for '{product_name}': product '{best_match['name']}' (ID: {best_match['id']}, similarity: {best_similarity:.2f})")
+            return (best_match["id"], best_match["name"], best_similarity)
+        else:
+            logger.info(f"No fuzzy match found for '{product_name}' (best similarity: {best_similarity:.2f}, threshold: {min_similarity})")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error during fuzzy product search for '{product_name}': {str(e)}")
+        return None
+
+
+def create_product(uid: int, product_code: str, description: str, unit_price: float) -> Optional[int]:
+    """
+    Create a new product in Odoo with the given details.
+    Used for EPB products when there's 0% matching with existing products.
+    
+    Args:
+        uid: Odoo user ID
+        product_code: Product reference/code (will be set as default_code, can be empty for EPB products)
         description: Product description (will be set as name)
         unit_price: Product unit price (will be set as list_price)
     
@@ -93,18 +179,21 @@ def create_product(uid: int, product_code: str, description: str, unit_price: fl
     try:
         product_data = {
             "name": description,
-            "default_code": product_code,
             "list_price": unit_price,
             "type": "product",  # Can be 'product', 'consu' (consumable), or 'service'
             "sale_ok": True,  # Can be sold
             "purchase_ok": False,  # Cannot be purchased (products from PDFs are sales-only)
         }
         
+        # Only set default_code if product_code is provided
+        if product_code:
+            product_data["default_code"] = product_code
+        
         product_id = call(uid, "product.product", "create", [product_data])
-        logger.info(f"Created new product '{product_code}' with product_id={product_id}")
+        logger.info(f"Created new product '{description}' (code: '{product_code}') with product_id={product_id}")
         return product_id
     except Exception as e:
-        logger.error(f"Error creating product '{product_code}': {str(e)}")
+        logger.error(f"Error creating product '{description}': {str(e)}")
         return None
 
 
@@ -134,7 +223,9 @@ def create_quotation(data):
 def create_quotation_from_xlsx_data(
     lines: List[Dict[str, Any]],
     customer_name: str = "FACQ Customer",
-    customer_email: Optional[str] = None
+    customer_email: Optional[str] = None,
+    enable_fuzzy_matching: bool = False,
+    auto_create_products: bool = False
 ):
     """
     Create a quotation in Odoo from XLSX parsed data
@@ -143,6 +234,8 @@ def create_quotation_from_xlsx_data(
         lines: List of line items with product_code, description, quantity, unit_price, tax_percent
         customer_name: Name of the customer
         customer_email: Email of the customer (optional)
+        enable_fuzzy_matching: Enable fuzzy matching for products without codes (EPB products)
+        auto_create_products: Automatically create products when 0% match (for EPB products)
     
     Returns:
         order_id: The ID of the created sale order in Odoo
@@ -151,7 +244,7 @@ def create_quotation_from_xlsx_data(
         raise ValueError("Odoo configuration not set. Please set ODOO_URL, ODOO_DB, ODOO_USER, and ODOO_PASSWORD environment variables.")
     
     uid = login()
-    logger.info(f"Creating quotation for customer: {customer_name}")
+    logger.info(f"Creating quotation for customer: {customer_name} (fuzzy_matching={enable_fuzzy_matching}, auto_create={auto_create_products})")
 
     # Search for existing customer by name or email, or create new one
     search_domain = []
@@ -180,6 +273,8 @@ def create_quotation_from_xlsx_data(
 
     # Add order lines
     products_found = 0
+    products_fuzzy_matched = 0
+    products_created = 0
     products_not_found = 0
     
     for line in lines:
@@ -190,12 +285,28 @@ def create_quotation_from_xlsx_data(
         
         # Try to find the product by its reference code
         product_id = None
+        fuzzy_matched_name = None
+        
         if product_code:
+            # Try exact match by product code
             product_id = search_product_by_reference(uid, product_code)
             
             if product_id:
                 products_found += 1
-            # If not found, product_id stays None and will create description line
+        elif enable_fuzzy_matching and description:
+            # No product code - try fuzzy matching by name (for EPB products)
+            fuzzy_result = search_product_by_fuzzy_name(uid, description)
+            
+            if fuzzy_result:
+                product_id, fuzzy_matched_name, similarity = fuzzy_result
+                products_fuzzy_matched += 1
+                logger.info(f"Using fuzzy matched product: '{fuzzy_matched_name}' (similarity: {similarity:.2f})")
+            elif auto_create_products:
+                # 0% match - create new product
+                product_id = create_product(uid, "", description, unit_price)
+                if product_id:
+                    products_created += 1
+                    logger.info(f"Created new product for '{description}' (0% match)")
         
         # Prepare order line data
         order_line_data = {
@@ -205,10 +316,13 @@ def create_quotation_from_xlsx_data(
         }
         
         if product_id:
-            # Product found - create a product line
+            # Product found or created - create a product line
             order_line_data["product_id"] = product_id
             # Let Odoo auto-fill the description from the product record
-            logger.info(f"Creating product line for '{product_code}' with product_id={product_id}")
+            if fuzzy_matched_name:
+                logger.info(f"Creating product line with fuzzy matched product '{fuzzy_matched_name}' (ID: {product_id})")
+            else:
+                logger.info(f"Creating product line for product_id={product_id}")
         else:
             # Product not found - create a description line
             if product_code:
@@ -217,7 +331,7 @@ def create_quotation_from_xlsx_data(
             else:
                 order_line_data["name"] = description
                 truncated_desc = description[:LOG_DESCRIPTION_MAX_LENGTH] + ('...' if len(description) > LOG_DESCRIPTION_MAX_LENGTH else '')
-                logger.warning(f"No product code provided - creating description line: {truncated_desc}")
+                logger.warning(f"No product code provided and no match found - creating description line: {truncated_desc}")
             products_not_found += 1
         
         # TODO: Add tax handling for production environments
@@ -235,10 +349,10 @@ def create_quotation_from_xlsx_data(
         try:
             call(uid, "sale.order.line", "create", [order_line_data])
         except Exception as e:
-            logger.error(f"Failed to create order line for product '{product_code}': {str(e)}")
+            logger.error(f"Failed to create order line for product '{product_code or description}': {str(e)}")
             raise
 
-    logger.info(f"Quotation created successfully: {products_found} products found, {products_not_found} description lines created")
+    logger.info(f"Quotation created successfully: {products_found} exact matches, {products_fuzzy_matched} fuzzy matches, {products_created} created, {products_not_found} description lines")
     return order_id
 
 
