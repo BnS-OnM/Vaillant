@@ -15,6 +15,9 @@ ODOO_PASSWORD = os.getenv("ODOO_PASSWORD")
 
 # Constants
 LOG_DESCRIPTION_MAX_LENGTH = 50
+FUZZY_MATCH_THRESHOLD = 0.6  # Minimum similarity ratio for fuzzy matching (60%)
+FUZZY_MATCH_WORD_OVERLAP_THRESHOLD = 0.5  # Minimum word overlap ratio
+FUZZY_MATCH_RATIO_BOOST = 0.7  # Boosted ratio when word overlap is significant
 
 def login():
     payload = {
@@ -74,7 +77,7 @@ def search_product_by_reference(uid: int, product_code: str) -> Optional[int]:
         return None
 
 
-def fuzzy_search_product_by_name(uid: int, product_name: str, threshold: float = 0.6) -> Optional[int]:
+def fuzzy_search_product_by_name(uid: int, product_name: str, threshold: float = FUZZY_MATCH_THRESHOLD) -> Optional[int]:
     """
     Search for a product in Odoo by fuzzy matching on the product name.
     Uses sequence matching to find similar product names.
@@ -82,18 +85,19 @@ def fuzzy_search_product_by_name(uid: int, product_name: str, threshold: float =
     Args:
         uid: Odoo user ID
         product_name: Product name to search for
-        threshold: Minimum similarity ratio (0.0 to 1.0) to consider a match. Default is 0.6 (60%)
+        threshold: Minimum similarity ratio (0.0 to 1.0) to consider a match. Default is FUZZY_MATCH_THRESHOLD
     
     Returns:
         product_id if found with similarity >= threshold, None otherwise
     """
     try:
-        # Get all products with their names
-        # For better performance in production, consider limiting the search
-        # or adding additional filters
+        # Get all active products with their names
+        # Note: For large databases, consider adding filters or pagination
         products = call(uid, "product.product", "search_read", [
-            [],  # No domain filter - search all products
-            ["id", "name", "default_code"]
+            [["active", "=", True]],  # Only search active products
+            ["id", "name", "default_code"],
+            0,  # offset
+            1000  # limit to first 1000 products for performance
         ])
         
         if not products:
@@ -120,8 +124,8 @@ def fuzzy_search_product_by_name(uid: int, product_name: str, threshold: float =
             common_words = search_words.intersection(product_words)
             
             # Boost ratio if significant words overlap
-            if search_words and len(common_words) / len(search_words) > 0.5:
-                ratio = max(ratio, 0.7)
+            if search_words and len(common_words) / len(search_words) > FUZZY_MATCH_WORD_OVERLAP_THRESHOLD:
+                ratio = max(ratio, FUZZY_MATCH_RATIO_BOOST)
             
             if ratio > best_ratio:
                 best_ratio = ratio
@@ -275,16 +279,21 @@ def create_quotation_from_xlsx_data(
                     # No match found (0% match) - create new product
                     logger.info(f"No match found for EPB product '{description}' - creating new product")
                     try:
-                        product_data = {
-                            "name": description,
-                            "list_price": unit_price,
-                            "type": "product",
-                            "sale_ok": True,
-                            "purchase_ok": False,
-                        }
-                        product_id = call(uid, "product.product", "create", [product_data])
-                        logger.info(f"Created new product '{description}' with product_id={product_id}")
-                        products_created += 1
+                        # Validate that we have a description before creating
+                        if not description or len(description.strip()) < 2:
+                            logger.warning(f"Description too short to create product: '{description}'")
+                            product_id = None
+                        else:
+                            product_data = {
+                                "name": description,
+                                "list_price": unit_price,
+                                "type": "product",  # Standard stockable product
+                                "sale_ok": True,  # Can be sold
+                                "purchase_ok": False,  # EPB products are sales-only
+                            }
+                            product_id = call(uid, "product.product", "create", [product_data])
+                            logger.info(f"Created new product '{description}' with product_id={product_id}")
+                            products_created += 1
                     except Exception as e:
                         logger.error(f"Failed to create product '{description}': {str(e)}")
                         product_id = None

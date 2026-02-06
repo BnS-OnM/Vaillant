@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 # Default Belgian VAT rate for EPB items (can be overridden)
 DEFAULT_EPB_TAX_PERCENT = 21
 
+# Regex pattern for number+letter indicators (e.g., 1a, 2a, 3a)
+LEGEND_INDICATOR_PATTERN = r"^(\d+[a-z]+)[\s\.\)\-:,]+"
+
 def normalize_text(s: str) -> str:
     """Normaliseer tekst voor betere matching."""
     if s is None:
@@ -56,11 +59,10 @@ def parse_legend_blocks(text: str) -> List[str]:
     # Items herkennen met nummer+letter indicator (1a, 2a, 3a, etc.)
     # Pattern: start met cijfer(s) gevolgd door letter(s), mogelijk met scheidingstekens
     item_like = []
-    indicator_pattern = r"^(\d+[a-z]+)[\s\.\)\-:,]+"
     
     for l in lines:
         # Zoek naar items die beginnen met nummer+letter indicator
-        match = re.match(indicator_pattern, l, re.IGNORECASE)
+        match = re.match(LEGEND_INDICATOR_PATTERN, l, re.IGNORECASE)
         if match:
             # Strip de indicator en behoud de rest als productnaam
             product_name = l[match.end():].strip()
