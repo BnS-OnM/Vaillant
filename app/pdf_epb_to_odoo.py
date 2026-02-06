@@ -6,9 +6,16 @@ import re
 import unicodedata
 from typing import List, Tuple, Dict
 from io import BytesIO
+import logging
 
 import pdfplumber
 from openpyxl import Workbook
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+# Default Belgian VAT rate for EPB items (can be overridden)
+DEFAULT_EPB_TAX_PERCENT = 21
 
 def normalize_text(s: str) -> str:
     """Normaliseer tekst voor betere matching."""
@@ -47,7 +54,7 @@ def parse_legend_blocks(text: str) -> List[str]:
     item_like = []
     for l in lines:
         if re.search(r"^[•\-\*\d]+[\)\.\-\s]", l) or re.search(r"[a-z0-9]{2,}", l):
-            l2 = re.sub(r"^(•|\-|\*|\d+[\)\.\-\s])+, """.strip()
+            l2 = re.sub(r"^(•|\-|\*|\d+[\)\.\-\s])+", "", l).strip()
             if l2:
                 item_like.append(l2)
     
@@ -88,6 +95,17 @@ def epb_pdf_to_xlsx(pdf_bytes: bytes) -> BytesIO:
     """
     Converteer EPB/installatievoorstel PDF naar XLSX met legende items.
     """
+    xlsx_file, _ = epb_pdf_to_xlsx_and_data(pdf_bytes)
+    return xlsx_file
+
+
+def epb_pdf_to_xlsx_and_data(pdf_bytes: bytes) -> Tuple[BytesIO, List[Dict]]:
+    """
+    Converteer EPB/installatievoorstel PDF naar XLSX met legende items en gestructureerde data.
+    
+    Returns:
+        Tuple[BytesIO, List[Dict]]: XLSX file en lijst van orderregels
+    """
     # Extract text
     full_text = []
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
@@ -124,16 +142,28 @@ def epb_pdf_to_xlsx(pdf_bytes: bytes) -> BytesIO:
         "Opmerkingen"
     ])
     
+    # Prepare structured data for Odoo import
+    lines_data = []
+    
     for description, qty in legend_items:
         ws.append([
             description,
             qty,
             "Te matchen met product"
         ])
+        
+        # Add to structured data (no product_code for EPB items, no price)
+        lines_data.append({
+            "product_code": "",  # EPB items don't have product codes
+            "description": description,
+            "quantity": qty,
+            "unit_price": 0.0,  # No price information in EPB PDFs
+            "tax_percent": DEFAULT_EPB_TAX_PERCENT
+        })
     
     output = BytesIO()
     wb.save(output)
     output.seek(0)
     
     print(f"DEBUG: EPB XLSX gegenereerd met {len(legend_items)} items")
-    return output
+    return output, lines_data
