@@ -92,9 +92,9 @@ def search_product_by_name_or_description(uid: int, search_text: str) -> Optiona
         product_id if found, None otherwise
     """
     try:
-        # Search by name (exact match first) - limit to 1 result for efficiency
+        # Search by name (exact match first)
         products = call(uid, "product.product", "search", [
-            [["name", "=", search_text]], 0, 1  # offset=0, limit=1
+            [["name", "=", search_text]]
         ])
         
         if products:
@@ -103,7 +103,7 @@ def search_product_by_name_or_description(uid: int, search_text: str) -> Optiona
         
         # If no exact match, try case-insensitive match using ilike
         products = call(uid, "product.product", "search", [
-            [["name", "ilike", search_text]], 0, 1  # offset=0, limit=1
+            [["name", "ilike", search_text]]
         ])
         
         if products:
@@ -119,7 +119,7 @@ def search_product_by_name_or_description(uid: int, search_text: str) -> Optiona
         
         # Try searching in description_sale field (used for sales/customer-facing descriptions)
         products = call(uid, "product.product", "search", [
-            [["description_sale", "ilike", search_text]], 0, 1  # offset=0, limit=1
+            [["description_sale", "ilike", search_text]]
         ])
         
         if products:
@@ -135,7 +135,7 @@ def search_product_by_name_or_description(uid: int, search_text: str) -> Optiona
         # Try searching in description field (may contain internal/purchase descriptions)
         # Note: This field is typically used for internal notes in Odoo, not customer-facing text
         products = call(uid, "product.product", "search", [
-            [["description", "ilike", search_text]], 0, 1  # offset=0, limit=1
+            [["description", "ilike", search_text]]
         ])
         
         if products:
