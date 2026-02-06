@@ -6,6 +6,8 @@ import os
 import logging
 
 from app.pdf_to_xlsx import facq_pdf_to_xlsx, facq_pdf_to_xlsx_and_data
+from app.pdf_detector import detect_pdf_type, PDFType
+from app.pdf_epb_to_odoo import epb_pdf_to_xlsx_and_data
 from app.odoo import create_quotation_from_xlsx_data, import_products_from_data
 from app.xlsx_import import parse_product_xlsx, parse_sale_order_xlsx
 from app.logging_middleware import StructuredLoggingMiddleware
@@ -77,7 +79,7 @@ async def upload_pdf_and_import_to_odoo(
     customer_email: Optional[str] = Form(None)
 ):
     """
-    Upload FACQ PDF → create XLSX → import to Odoo as quotation
+    Upload PDF (FACQ or EPB) → create XLSX → import to Odoo as quotation
     """
     if not file.filename.lower().endswith(".pdf"):
         return JSONResponse(
@@ -88,7 +90,16 @@ async def upload_pdf_and_import_to_odoo(
     pdf_bytes = await file.read()
 
     try:
-        xlsx_file, lines_data = facq_pdf_to_xlsx_and_data(pdf_bytes)
+        # Detect PDF type
+        pdf_type = detect_pdf_type(pdf_bytes)
+        
+        # Use appropriate converter based on PDF type
+        if pdf_type == PDFType.EPB_VOORSTEL:
+            xlsx_file, lines_data = epb_pdf_to_xlsx_and_data(pdf_bytes)
+        else:
+            # Default to FACQ parser for FACQ and unknown types
+            xlsx_file, lines_data = facq_pdf_to_xlsx_and_data(pdf_bytes)
+            
     except Exception as e:
         return JSONResponse(
             status_code=500,
