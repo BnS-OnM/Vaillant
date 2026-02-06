@@ -34,10 +34,11 @@ NOISE_PATTERNS = [
     r'^[a-z]$',  # Single letters: a, b, c, etc.
     r'^\d{1,3}$',  # Short numbers: 1, 23, 032, etc.
     r'^\d+m$',  # Distance markers: 3m, 5m, etc.
-    r'^(mod|bus|pe|rf|af|dhw|l1|l2|l3|s1|s2|s3)$',  # Technical abbreviations
+    r'^(mod|bus|pe|rf|af|dhw|l1|l2|l3|s1|s2|s3)$',  # Technical abbreviations (exact match)
     r'^\d+v~?$',  # Voltage: 230v~, 12v, etc.
     r'^[\d\s]+$',  # Only digits and spaces: "1 2 1 2"
-    r'^[a-z]{1,3}\d*$',  # Short codes: j, rf, pe, mod, etc.
+    r'^(bus\s+mod|mod\s+a|mod\s+bus)$',  # Bus/module combinations
+    r'^[a-z]+\d+:\d+$',  # Codes with colons: vrc720:8
 ]
 
 def normalize_text(s: str) -> str:
@@ -68,9 +69,14 @@ def is_valid_legend_item(text: str) -> bool:
             logger.debug(f"Filtered out noise (pattern match): '{text}'")
             return False
     
+    # Filter out items that are just 1-2 letters followed by digits (but allow vr, vp, vw with digits)
+    if re.match(r'^[a-z]{1,2}\d+$', text_lower) and not text_lower[:2] in ['vr', 'vp', 'vw']:
+        logger.debug(f"Filtered out noise (short code): '{text}'")
+        return False
+    
     # Too short items are likely noise
     if len(text_lower) < 5:
-        # Allow short items only if they contain product keywords
+        # Allow short items only if they contain product keywords or are Vaillant codes
         has_keyword = any(keyword in text_lower for keyword in PRODUCT_KEYWORDS)
         if not has_keyword:
             logger.debug(f"Filtered out noise (too short): '{text}'")
@@ -79,6 +85,15 @@ def is_valid_legend_item(text: str) -> bool:
     # Items should have at least 2 words OR contain a product keyword
     words = text_lower.split()
     if len(words) >= 2:
+        # For multi-word items, check that they're not generic descriptions
+        # Filter out generic phrases like "additional information here"
+        generic_words = ['additional', 'information', 'here', 'some', 'footer', 'text', 'page', 'document']
+        if any(word in generic_words for word in words):
+            # Only keep if it also has product keywords
+            has_keyword = any(keyword in text_lower for keyword in PRODUCT_KEYWORDS)
+            if not has_keyword:
+                logger.debug(f"Filtered out noise (generic text): '{text}'")
+                return False
         return True
     
     # Single word items must contain a product keyword
