@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Request, Form
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
-from typing import Optional
+from typing import Optional, List, Dict
 import os
 import logging
 
@@ -9,7 +9,7 @@ from app.pdf_to_xlsx import facq_pdf_to_xlsx, facq_pdf_to_xlsx_and_data
 from app.pdf_detector import detect_pdf_type, PDFType
 from app.pdf_epb_to_odoo import epb_pdf_to_xlsx_and_data
 from app.odoo import create_quotation_from_xlsx_data, import_products_from_data
-from app.xlsx_import import parse_product_xlsx, parse_sale_order_xlsx
+from app.xlsx_import import parse_product_xlsx, parse_sale_order_xlsx, build_catalog_from_products
 from app.logging_middleware import StructuredLoggingMiddleware
 
 # Configure logging
@@ -25,6 +25,11 @@ templates = Jinja2Templates(directory="app/templates")
 
 # Configuration
 DEFAULT_CUSTOMER_NAME = os.getenv("DEFAULT_CUSTOMER_NAME", "FACQ Customer")
+
+# In-memory catalog storage
+# This will store the product catalog from /import-products endpoint
+# Format: List[Dict] with keys: name, description, list_price, default_code, _search, _search_collapse
+product_catalog: List[Dict] = []
 
 
 @app.get("/favicon.ico")
@@ -77,11 +82,15 @@ async def upload_pdf_to_xlsx(file: UploadFile = File(...)):
 async def upload_pdf_and_import_to_odoo(
     file: UploadFile = File(...),
     customer_name: Optional[str] = Form(None),
-    customer_email: Optional[str] = Form(None)
+    customer_email: Optional[str] = Form(None),
+    partner: Optional[str] = Form(None)
 ):
     """
-    Upload PDF (FACQ or EPB) → create XLSX → import to Odoo as quotation
+    Upload PDF (FACQ or EPB/Vaillant) → create XLSX → import to Odoo as quotation
+    For EPB/Vaillant PDFs, uses the product catalog from /import-products for matching.
     """
+    global product_catalog
+    
     if not file.filename.lower().endswith(".pdf"):
         return JSONResponse(
             status_code=400,
@@ -97,7 +106,16 @@ async def upload_pdf_and_import_to_odoo(
         
         # Use appropriate converter based on PDF type
         if pdf_type == PDFType.EPB_VOORSTEL:
-            xlsx_file, lines_data = epb_pdf_to_xlsx_and_data(pdf_bytes)
+            # Check if catalog is available for EPB/Vaillant PDFs
+            if not product_catalog:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": "Product catalogus niet geladen",
+                        "detail": "Upload eerst een product.template XLSX via /import-products"
+                    }
+                )
+            xlsx_file, lines_data = epb_pdf_to_xlsx_and_data(pdf_bytes, product_catalog, partner or "")
         else:
             # Default to FACQ parser for FACQ and unknown types
             if pdf_type == PDFType.UNKNOWN:
@@ -172,12 +190,15 @@ async def import_products_from_excel(
     file: UploadFile = File(...)
 ):
     """
-    Import products from Product (product.template).xlsx file into Odoo.
+    Import products from Product (product.template).xlsx file.
+    Builds an in-memory catalog for matching PDF items to products.
     
     Expected Excel format:
     - Column headers in first row
-    - Columns: ArtikelNr/default_code, Naam/name, etc.
+    - Columns: name/Product/Naam, description/omschrijving, list_price, default_code/internal reference/SKU
     """
+    global product_catalog
+    
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         return JSONResponse(
             status_code=400,
@@ -199,29 +220,37 @@ async def import_products_from_excel(
                 }
             )
         
-        # Import products to Odoo
-        stats = import_products_from_data(products_data)
+        # Build catalog with normalized search fields
+        product_catalog = build_catalog_from_products(products_data)
+        
+        logger.info(f"Product catalog updated with {len(product_catalog)} items")
+        
+        # Optionally import products to Odoo if configured
+        odoo_stats = None
+        try:
+            odoo_stats = import_products_from_data(products_data)
+        except ValueError:
+            # Odoo not configured, skip Odoo import but catalog is still built
+            logger.info("Odoo not configured, skipping Odoo import (catalog still available for PDF matching)")
+        
+        response_data = {
+            "success": True,
+            "message": f"Catalogus geladen met {len(product_catalog)} producten",
+            "catalog_count": len(product_catalog)
+        }
+        
+        if odoo_stats:
+            response_data["odoo_stats"] = odoo_stats
+            response_data["message"] += f". Odoo import: {odoo_stats['created']} aangemaakt, {odoo_stats['updated']} bijgewerkt"
         
         return JSONResponse(
             status_code=200,
-            content={
-                "success": True,
-                "message": f"Producten geïmporteerd: {stats['created']} aangemaakt, {stats['updated']} bijgewerkt",
-                "stats": stats
-            }
+            content=response_data
         )
         
-    except ValueError as e:
-        # Odoo configuration error
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "Odoo configuratie ontbreekt",
-                "detail": str(e)
-            }
-        )
     except Exception as e:
         # Other errors
+        logger.error(f"Import failed: {str(e)}")
         return JSONResponse(
             status_code=500,
             content={
