@@ -12,12 +12,22 @@ class LogAnalyzer:
     
     Supported formats:
     1. CSV format:
-       - First row: headers (at minimum should have a column with JSON log entries)
-       - Subsequent rows: log entries in JSON format
+       - Automatically detects delimiter (comma, semicolon, tab, pipe)
+       - Handles multiple CSV formats:
+         a. Single column with JSON strings
+         b. Multiple columns where one contains the JSON log entry
+         c. Columns that represent the flattened log structure (message, timestamp, etc.)
+       - Skips empty rows gracefully
+       - Handles None/null values in cells
     
     2. Newline-delimited JSON (.log files):
        - Each line contains a complete JSON object
        - No headers required
+    
+    Features:
+    - Robust CSV dialect detection
+    - Type-safe value handling
+    - Graceful error handling with parse error tracking
     """
     
     def __init__(self, log_content: bytes, file_format: str = 'csv'):
@@ -38,13 +48,17 @@ class LogAnalyzer:
         Parse the log file and extract structured log entries.
         
         For CSV files:
-        - The CSV may have various formats:
+        - Automatically detects CSV dialect (delimiter, quoting style)
+        - Supports multiple CSV formats:
           1. Single column with JSON strings
           2. Multiple columns where one contains the JSON log entry
-          3. Columns that represent the flattened log structure
+          3. Flattened structure with separate columns (message, timestamp, level, tags.*)
+        - Skips completely empty rows
+        - Handles None/null values safely
         
         For NDJSON files (.log):
         - Each line contains a complete JSON object
+        - Skips empty lines
         """
         if self.file_format == 'ndjson':
             self._parse_ndjson()
@@ -79,7 +93,14 @@ class LogAnalyzer:
     
     def _parse_csv(self) -> None:
         """
-        Parse CSV log file.
+        Parse CSV log file with robust dialect detection and error handling.
+        
+        Features:
+        - Automatic dialect detection for different delimiters (comma, semicolon, tab, pipe)
+        - Falls back to default CSV format if detection fails
+        - Skips completely empty rows
+        - Type-safe value extraction
+        - Tracks parse errors for debugging
         """
         try:
             content = self.log_content.decode('utf-8')
@@ -88,10 +109,25 @@ class LogAnalyzer:
             content = self.log_content.decode('utf-8-sig', errors='replace')
         
         csv_file = io.StringIO(content)
-        reader = csv.DictReader(csv_file)
+        
+        # Try to detect CSV dialect automatically to handle different delimiters
+        try:
+            sample = content[:8192]  # Use first 8KB for dialect detection
+            # Provide delimiters hint to avoid detecting spaces as delimiters
+            dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
+            csv_file.seek(0)
+            reader = csv.DictReader(csv_file, dialect=dialect)
+        except (csv.Error, Exception):
+            # Fall back to default dialect if detection fails
+            csv_file.seek(0)
+            reader = csv.DictReader(csv_file)
         
         for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
             try:
+                # Skip completely empty rows (rows with no non-empty string values)
+                if not row or not any(v and isinstance(v, str) and v.strip() for v in row.values()):
+                    continue
+                
                 # Try to find JSON in the row
                 log_entry = self._extract_log_entry(row)
                 if log_entry:
@@ -101,22 +137,35 @@ class LogAnalyzer:
     
     def _extract_log_entry(self, row: Dict[str, str]) -> Dict[str, Any]:
         """
-        Extract log entry from a CSV row.
+        Extract log entry from a CSV row with multiple fallback strategies.
         
-        Tries multiple strategies:
-        1. Look for a column with JSON content
-        2. If the row itself looks like a structured log, use it directly
+        Tries three strategies in order:
+        1. Look for a column containing a complete JSON object
+        2. Reconstruct from flattened CSV structure (message, timestamp, level, tags.*)
+        3. If single column, try to parse as JSON
+        
+        All strategies include:
+        - Type checking to ensure values are strings
+        - Validation for non-empty values
+        - Safe handling of None/null values
+        
+        Returns:
+            Dict with log entry if successful, None otherwise
         """
         # Strategy 1: Look for columns that contain JSON
         for key, value in row.items():
-            if value and value.strip().startswith('{'):
-                try:
-                    return json.loads(value)
-                except json.JSONDecodeError:
-                    continue
+            # Add null/None check and type validation
+            if value and isinstance(value, str):
+                value = value.strip()
+                if value.startswith('{') and value.endswith('}'):
+                    try:
+                        return json.loads(value)
+                    except json.JSONDecodeError:
+                        continue
         
         # Strategy 2: Check if the row has 'message' field (structured log format)
-        if 'message' in row:
+        # We check both that 'message' key exists and has a non-empty string value
+        if 'message' in row and row.get('message') and isinstance(row.get('message'), str) and row['message'].strip():
             # Reconstruct the log entry from CSV columns
             log_entry = {
                 'message': row.get('message', ''),
@@ -129,10 +178,10 @@ class LogAnalyzer:
                     'level': row.get('level') or row.get('attributes.level', 'info')
                 }
             
-            # Add tags if present
+            # Add tags if present (only include non-empty string tags)
             tags = {}
             for key, value in row.items():
-                if key.startswith('tags.'):
+                if key.startswith('tags.') and value and isinstance(value, str) and value.strip():
                     tag_name = key.replace('tags.', '')
                     tags[tag_name] = value
             if tags:
@@ -143,11 +192,13 @@ class LogAnalyzer:
         # Strategy 3: If there's only one column, try to parse it as JSON
         if len(row) == 1:
             value = list(row.values())[0]
-            if value and value.strip().startswith('{'):
-                try:
-                    return json.loads(value)
-                except json.JSONDecodeError:
-                    pass
+            if value and isinstance(value, str):
+                value = value.strip()
+                if value.startswith('{') and value.endswith('}'):
+                    try:
+                        return json.loads(value)
+                    except json.JSONDecodeError:
+                        pass
         
         return None
     
