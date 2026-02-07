@@ -83,6 +83,8 @@ async def upload_pdf_to_xlsx(file: UploadFile = File(...)):
                         "detail": "Upload eerst een product.template XLSX via /import-products"
                     }
                 )
+            # epb_pdf_to_xlsx_and_data returns (xlsx_file, lines_data)
+            # We only need the xlsx_file here, partner_id is empty string as it's not needed for xlsx export
             xlsx_file = epb_pdf_to_xlsx_and_data(pdf_bytes, product_catalog, "")[0]
             filename = "vaillant_offerte.xlsx"
         else:
