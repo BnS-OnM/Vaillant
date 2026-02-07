@@ -14,8 +14,10 @@ from openpyxl import Workbook
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Default Belgian VAT rate for EPB items
+# Constants
 DEFAULT_EPB_TAX_PERCENT = 21
+DEFAULT_ORDER_REFERENCE = "GPT-001"  # Default order reference for Odoo import
+MIN_JACCARD_SIMILARITY = 0.2  # Minimum token overlap similarity for product matching
 
 
 def normalize_text(s: str) -> str:
@@ -105,8 +107,8 @@ def parse_legend_blocks(text: str) -> List[str]:
         if re.match(r'^pagina\s+\d+', line, re.IGNORECASE):
             continue
         
-        # Skip indicator-only lines (1a, 2d, 3b, etc.)
-        if re.match(r'^\d+[a-z]+$', line, re.IGNORECASE):
+        # Skip indicator-only lines (1a, 2d, 3b, etc. - single letter only)
+        if re.match(r'^\d+[a-z]$', line, re.IGNORECASE):
             continue
         
         # Clean up bullet points and numbering first
@@ -319,7 +321,7 @@ def match_item(label: str, catalog: List[Dict]) -> Optional[Dict]:
                     best_match = prod
     
     # Only return match if score is decent
-    if best_score >= 0.2:  # At least 20% overlap
+    if best_score >= MIN_JACCARD_SIMILARITY:
         return best_match
     
     return None
@@ -432,7 +434,7 @@ def epb_pdf_to_xlsx_and_data(
     first_row = True
     for prod_name, (prod, total_qty) in matched_products.items():
         row = [
-            "GPT-001" if first_row else "",  # Orderreferentie only on first row
+            DEFAULT_ORDER_REFERENCE if first_row else "",  # Orderreferentie only on first row
             partner_id if first_row else "",  # Partner ID only on first row
             prod['name'],
             prod['description'],

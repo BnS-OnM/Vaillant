@@ -164,7 +164,9 @@ def parse_product_xlsx(xlsx_bytes: bytes) -> List[Dict[str, Any]]:
                 header_lower = str(header).lower().strip()
                 if header_lower in field_mapping:
                     field_name = field_mapping[header_lower]
-                    # Prefer exact match for list_price, but allow any column with "prijs"
+                    # Special handling for list_price: prefer exact "list_price" match,
+                    # but allow any column with "prijs" to overwrite previous mappings
+                    # This ensures we use the most specific price column available
                     if field_name not in column_mapping or field_name == 'list_price':
                         column_mapping[field_name] = idx
         

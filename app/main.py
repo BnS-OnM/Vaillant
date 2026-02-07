@@ -4,6 +4,7 @@ from fastapi.templating import Jinja2Templates
 from typing import Optional, List, Dict
 import os
 import logging
+import threading
 
 from app.pdf_to_xlsx import facq_pdf_to_xlsx, facq_pdf_to_xlsx_and_data
 from app.pdf_detector import detect_pdf_type, PDFType
@@ -30,6 +31,7 @@ DEFAULT_CUSTOMER_NAME = os.getenv("DEFAULT_CUSTOMER_NAME", "FACQ Customer")
 # This will store the product catalog from /import-products endpoint
 # Format: List[Dict] with keys: name, description, list_price, default_code, _search, _search_collapse
 product_catalog: List[Dict] = []
+catalog_lock = threading.Lock()  # Thread-safe access to catalog
 
 
 @app.get("/favicon.ico")
@@ -89,8 +91,6 @@ async def upload_pdf_and_import_to_odoo(
     Upload PDF (FACQ or EPB/Vaillant) → create XLSX → import to Odoo as quotation
     For EPB/Vaillant PDFs, uses the product catalog from /import-products for matching.
     """
-    global product_catalog
-    
     if not file.filename.lower().endswith(".pdf"):
         return JSONResponse(
             status_code=400,
@@ -107,7 +107,11 @@ async def upload_pdf_and_import_to_odoo(
         # Use appropriate converter based on PDF type
         if pdf_type == PDFType.EPB_VOORSTEL:
             # Check if catalog is available for EPB/Vaillant PDFs
-            if not product_catalog:
+            # Thread-safe catalog read
+            with catalog_lock:
+                catalog_snapshot = product_catalog.copy()
+            
+            if not catalog_snapshot:
                 return JSONResponse(
                     status_code=400,
                     content={
@@ -115,7 +119,7 @@ async def upload_pdf_and_import_to_odoo(
                         "detail": "Upload eerst een product.template XLSX via /import-products"
                     }
                 )
-            xlsx_file, lines_data = epb_pdf_to_xlsx_and_data(pdf_bytes, product_catalog, partner or "")
+            xlsx_file, lines_data = epb_pdf_to_xlsx_and_data(pdf_bytes, catalog_snapshot, partner or "")
         else:
             # Default to FACQ parser for FACQ and unknown types
             if pdf_type == PDFType.UNKNOWN:
@@ -221,7 +225,11 @@ async def import_products_from_excel(
             )
         
         # Build catalog with normalized search fields
-        product_catalog = build_catalog_from_products(products_data)
+        new_catalog = build_catalog_from_products(products_data)
+        
+        # Thread-safe catalog update
+        with catalog_lock:
+            product_catalog = new_catalog
         
         logger.info(f"Product catalog updated with {len(product_catalog)} items")
         
