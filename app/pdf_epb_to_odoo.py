@@ -109,18 +109,18 @@ def parse_legend_blocks(text: str) -> List[str]:
         if re.match(r'^\d+[a-z]+$', line, re.IGNORECASE):
             continue
         
+        # Clean up bullet points and numbering first
+        cleaned = re.sub(r'^[•\-\*\d]+[a-z]?[\)\.\-\s]+', '', line).strip()
+        if not cleaned:
+            continue
+        
         # Normalize and check if it's a heading to ignore
-        normalized = normalize_text(line)
+        normalized = normalize_text(cleaned)
         if normalized in ignore_headings:
             continue
         
         # Skip very short normalized text
         if len(normalized) < 5:
-            continue
-        
-        # Clean up bullet points and numbering
-        cleaned = re.sub(r'^[•\-\*\d]+[\)\.\-\s]+', '', line).strip()
-        if not cleaned:
             continue
         
         # This looks like a real item
@@ -155,32 +155,24 @@ def extract_main_components(full_text: str) -> List[str]:
     components = []
     
     # Define patterns for main components
-    # Each pattern is (display_name, regex_pattern)
+    # Check more specific patterns first to avoid duplicates
     patterns = [
-        # aroTHERM Split plus VWL variants
         ("aroTHERM Split plus VWL 8.2 AS", r'arotherm\s+split\s+plus\s+vwl\s*8[\.,]?\s*2\s*as'),
-        ("VWL 8.2 AS", r'(?<!arotherm\s+split\s+plus\s+)vwl\s*8[\.,]?\s*2\s*as'),
-        
-        # Hydraulic module VWL variants
         ("Hydraulic module VWL 8.2 IS", r'hydraulic\s+module\s+vwl\s*8[\.,]?\s*2\s*is'),
-        ("VWL 8.2 IS", r'(?<!hydraulic\s+module\s+)vwl\s*8[\.,]?\s*2\s*is'),
-        
-        # uniSTOR VIH RW
         ("uniSTOR VIH RW", r'unistor\s+vih\s*rw'),
-        ("VIH RW", r'(?<!unistor\s+)vih\s*rw'),
-        
-        # VP RW variants
         ("VP RW 45/2 B", r'vp\s*rw\s*45\s*/?\s*2\s*b'),
-        
-        # Controllers
         ("VRC720", r'vrc\s*720'),
         ("VR71", r'vr\s*71'),
         ("VR940", r'vr\s*940'),
+        ("VWL 8.2 AS", r'\bvwl\s*8[\.,]?\s*2\s*as\b'),
+        ("VWL 8.2 IS", r'\bvwl\s*8[\.,]?\s*2\s*is\b'),
+        ("VIH RW", r'\bvih\s*rw\b'),
     ]
     
     normalized_text = normalize_text(full_text)
     
     found = set()
+    
     for display_name, pattern in patterns:
         if re.search(pattern, normalized_text, re.IGNORECASE):
             # Use normalized display name as key to avoid duplicates
