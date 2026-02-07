@@ -58,7 +58,7 @@ class StructuredLoggingMiddleware(BaseHTTPMiddleware):
             http_version = f"HTTP/{http_version}"
         
         # Build the log message
-        message = f"{client_ip}:{client_port} - \"{request.method} {request.url.path} {http_version}\" {response.status_code} {status_phrase}"
+        message = f"INFO:     {client_ip}:{client_port} - \"{request.method} {request.url.path} {http_version}\" {response.status_code} {status_phrase}"
         
         # Create structured log entry
         log_entry = {
