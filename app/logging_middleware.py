@@ -71,6 +71,6 @@ class StructuredLoggingMiddleware(BaseHTTPMiddleware):
         }
         
         # Log as JSON
-        logger.info(json.dumps(log_entry))
+        print(json.dumps(log_entry), flush=True)
         
         return response

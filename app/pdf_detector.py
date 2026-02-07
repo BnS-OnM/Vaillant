@@ -4,6 +4,9 @@ Detecteer type PDF: FACQ offerte of EPB installatievoorstel
 import pdfplumber
 from io import BytesIO
 from enum import Enum
+import logging
+
+logger = logging.getLogger(__name__)
 
 class PDFType(Enum):
     FACQ_OFFERTE = "facq_offerte"
@@ -47,7 +50,7 @@ def detect_pdf_type(pdf_bytes: bytes) -> PDFType:
             price_patterns = len(re.findall(r'\d+[.,]\d{2}', text))
             article_patterns = len(re.findall(r'\b\d{5,6}\b', text))
             
-            print(f"DEBUG: EPB score={epb_score}, FACQ score={facq_score}, prices={price_patterns}, articles={article_patterns}")
+            logger.info(f"DEBUG: EPB score={epb_score}, FACQ score={facq_score}, prices={price_patterns}, articles={article_patterns}")
             
             # Beslissingslogica
             if epb_score >= 2:
