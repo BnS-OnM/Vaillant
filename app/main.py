@@ -54,26 +54,60 @@ async def index(request: Request):
 @app.post("/upload-xlsx")
 async def upload_pdf_to_xlsx(file: UploadFile = File(...)):
     """
-    Upload FACQ PDF → download XLSX
+    Upload PDF (FACQ or EPB/Vaillant) → download XLSX
+    For EPB/Vaillant PDFs, uses the product catalog from /import-products for matching.
     """
+    global product_catalog
+    
     if not file.filename.lower().endswith(".pdf"):
-        return {"error": "Upload een PDF-bestand"}
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Upload een PDF-bestand"}
+        )
 
     pdf_bytes = await file.read()
 
     try:
-        xlsx_file = facq_pdf_to_xlsx(pdf_bytes)
+        # Detect PDF type
+        pdf_type = detect_pdf_type(pdf_bytes)
+        logger.info(f"Detected PDF type: {pdf_type.value}")
+        
+        # Use appropriate converter based on PDF type
+        if pdf_type == PDFType.EPB_VOORSTEL:
+            # Check if catalog is available for EPB/Vaillant PDFs
+            if not product_catalog:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": "Product catalogus niet geladen",
+                        "detail": "Upload eerst een product.template XLSX via /import-products"
+                    }
+                )
+            # epb_pdf_to_xlsx_and_data returns (xlsx_file, lines_data)
+            # We only need the xlsx_file here, partner_id is empty string as it's not needed for xlsx export
+            xlsx_file = epb_pdf_to_xlsx_and_data(pdf_bytes, product_catalog, "")[0]
+            filename = "vaillant_offerte.xlsx"
+        else:
+            # Default to FACQ parser for FACQ and unknown types
+            if pdf_type == PDFType.UNKNOWN:
+                logger.warning("Unknown PDF type detected, falling back to FACQ parser")
+            xlsx_file = facq_pdf_to_xlsx(pdf_bytes)
+            filename = "facq_offerte.xlsx"
+            
     except Exception as e:
-        return {
-            "error": "Conversie mislukt",
-            "detail": str(e)
-        }
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Conversie mislukt",
+                "detail": str(e)
+            }
+        )
 
     return StreamingResponse(
         xlsx_file,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": "attachment; filename=facq_offerte.xlsx"
+            "Content-Disposition": f"attachment; filename={filename}"
         }
     )
 
