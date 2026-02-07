@@ -7,11 +7,10 @@ import logging
 
 from app.pdf_to_xlsx import facq_pdf_to_xlsx, facq_pdf_to_xlsx_and_data
 from app.pdf_detector import detect_pdf_type, PDFType
-from app.pdf_vaillant_to_odoo import vaillant_pdf_to_xlsx_and_data
+from app.pdf_epb_to_odoo import epb_pdf_to_xlsx_and_data
 from app.odoo import create_quotation_from_xlsx_data, import_products_from_data
 from app.xlsx_import import parse_product_xlsx, parse_sale_order_xlsx
 from app.logging_middleware import StructuredLoggingMiddleware
-from app.log_parser import LogAnalyzer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -81,7 +80,7 @@ async def upload_pdf_and_import_to_odoo(
     customer_email: Optional[str] = Form(None)
 ):
     """
-    Upload PDF (FACQ or Vaillant installatievoorstel) → create XLSX → import to Odoo as quotation
+    Upload PDF (FACQ or EPB) → create XLSX → import to Odoo as quotation
     """
     if not file.filename.lower().endswith(".pdf"):
         return JSONResponse(
@@ -97,17 +96,8 @@ async def upload_pdf_and_import_to_odoo(
         logger.info(f"Detected PDF type: {pdf_type.value}")
         
         # Use appropriate converter based on PDF type
-        if pdf_type == PDFType.VAILLANT_VOORSTEL:
-            # For Vaillant installatievoorstel PDFs, try to get uid for fuzzy matching
-            uid = None
-            try:
-                from app.odoo import login
-                uid = login()
-                logger.info("Odoo uid obtained for Vaillant installatievoorstel fuzzy matching")
-            except Exception as e:
-                logger.warning(f"Could not get Odoo uid for fuzzy matching: {str(e)}")
-            
-            xlsx_file, lines_data = vaillant_pdf_to_xlsx_and_data(pdf_bytes, uid=uid)
+        if pdf_type == PDFType.EPB_VOORSTEL:
+            xlsx_file, lines_data = epb_pdf_to_xlsx_and_data(pdf_bytes)
         else:
             # Default to FACQ parser for FACQ and unknown types
             if pdf_type == PDFType.UNKNOWN:
@@ -312,71 +302,6 @@ async def import_sale_order_from_excel(
             status_code=500,
             content={
                 "error": "Import mislukt",
-                "detail": str(e)
-            }
-        )
-
-
-@app.post("/analyze-logs")
-async def analyze_logs(file: UploadFile = File(...)):
-    """
-    Analyze log files containing structured JSON logs.
-    
-    This endpoint:
-    1. Parses log file containing structured log entries (CSV or newline-delimited JSON)
-    2. Extracts HTTP request information from log messages
-    3. Provides statistics on request patterns, status codes, and error rates
-    
-    Supported formats:
-    - CSV files (.csv): Structured log entries in CSV format with JSON or flattened columns
-    - Log files (.log): Newline-delimited JSON, one log entry per line
-    
-    Expected log entry structure:
-    - 'message' field with HTTP request details
-    - 'timestamp' field with ISO 8601 timestamp
-    
-    Returns:
-    - total_requests: Total number of HTTP requests logged
-    - status_codes: Distribution of HTTP status codes
-    - methods: Distribution of HTTP methods (GET, POST, etc.)
-    - paths: Distribution of request paths
-    - error_rate: Percentage of 4xx and 5xx responses
-    - time_range: Earliest and latest timestamps in logs
-    """
-    filename_lower = file.filename.lower()
-    
-    # Determine file format
-    if filename_lower.endswith(".csv"):
-        file_format = "csv"
-    elif filename_lower.endswith(".log"):
-        file_format = "ndjson"
-    else:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "Upload een CSV- of LOG-bestand"}
-        )
-    
-    log_bytes = await file.read()
-    
-    try:
-        # Parse and analyze the log file
-        analyzer = LogAnalyzer(log_bytes, file_format=file_format)
-        analyzer.parse()
-        stats = analyzer.get_statistics()
-        
-        return JSONResponse(
-            status_code=200,
-            content={
-                "success": True,
-                "statistics": stats
-            }
-        )
-        
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "Log analyse mislukt",
                 "detail": str(e)
             }
         )
